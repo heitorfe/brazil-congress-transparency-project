@@ -1,0 +1,45 @@
+version: 2
+
+sources:
+  - name: legis
+    description: "Raw Parquet files extracted from the LEGIS Senate Open Data API"
+    tables:
+      - name: senadores
+        description: "One row per senator currently in office (biographical data)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/senadores.parquet"
+
+      - name: mandatos
+        description: "One row per mandate period per senator (a senator may have multiple)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/mandatos.parquet"
+
+      - name: votacoes
+        description: "One row per plenary voting session"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/votacoes.parquet"
+
+      - name: votos
+        description: "One row per senator per voting session (exploded from votacoes)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/votos.parquet"
+
+      - name: comissoes
+        description: "Committee master list from /comissao/lista"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/comissoes.parquet"
+
+      - name: membros_comissao
+        description: "Senator committee membership history from /senador/{code}/comissoes"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/membros_comissao.parquet"
+
+      - name: liderancas
+        description: "Current leadership positions from /composicao/lideranca (314 records)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/liderancas.parquet"
+
+      - name: processos
+        description: "Legislative proposals from /processo (PL, PEC, PLP, MPV from 2019)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/processos.parquet"

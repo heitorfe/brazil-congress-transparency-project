@@ -4,7 +4,7 @@
     unique_key=['codigo_sessao_votacao', 'codigo_parlamentar'],
     incremental_strategy='merge',
     on_schema_change='sync_all_columns',
-    tags=['votes']
+    tags=['facts', 'votes']
   )
 }}
 
@@ -14,11 +14,11 @@
 -- not the current party stored in dim_senador).
 
 with votos as (
-    select * from {{ ref('stg_votos') }}
+    select * from {{ ref('stg_legis__votos') }}
 ),
 
 votacoes as (
-    select * from {{ ref('stg_votacoes') }}
+    select * from {{ ref('stg_legis__votacoes') }}
 
     {% if is_incremental() %}
     -- On incremental runs, only load sessions newer than the latest already loaded

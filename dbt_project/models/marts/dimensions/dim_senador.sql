@@ -1,9 +1,16 @@
+{{
+  config(
+    materialized='table',
+    tags=['dimensions']
+  )
+}}
+
 -- Grain: 1 row per senator currently in office
 -- Joins biographical data with their most recent active mandate
 -- partido_nome comes from the TSE seed (not the API, which doesn't return it)
 
 with senadores as (
-    select * from {{ ref('stg_senadores') }}
+    select * from {{ ref('stg_legis__senadores') }}
 ),
 
 mandatos_ranked as (
@@ -14,7 +21,7 @@ mandatos_ranked as (
             partition by senador_id
             order by mandato_inicio desc nulls last
         ) as rn
-    from {{ ref('stg_mandatos') }}
+    from {{ ref('stg_legis__mandatos') }}
 ),
 
 mandato_atual as (

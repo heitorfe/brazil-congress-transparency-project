@@ -1,0 +1,6 @@
+version: 2
+
+# Reserved for future bridge tables.
+# Example future model: bridge_voto_orientacao (cohesion analysis)
+#   Grain: 1 row per senator per vote
+#   Derives: seguiu_orientacao (bool) by joining fct_votacao + fact_orientacao_bancada + dim_filiacao

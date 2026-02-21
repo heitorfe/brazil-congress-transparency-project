@@ -1,3 +1,5 @@
+{{ config(materialized='view') }}
+
 -- Grain: 1 row per senator per voting session
 -- Source: data/raw/votos.parquet (exploded from nested votos[] in /votacao API)
 -- Responsibility: type casting, renaming, and derived boolean flags
@@ -19,9 +21,9 @@ renamed as (
         trim(sigla_voto)                       as sigla_voto,
         trim(descricao_voto)                   as descricao_voto,
         -- Derived: did this senator cast an affirmative vote?
-        case when trim(sigla_voto) = 'Sim' then true else false end as voto_afirmativo,
+        case when trim(sigla_voto) = 'Sim' then true else false end  as voto_afirmativo,
         -- Derived: did this senator cast a negative vote?
-        case when trim(sigla_voto) = 'Não' then true else false end as voto_negativo,
+        case when trim(sigla_voto) = 'Não' then true else false end  as voto_negativo,
         -- Derived: was the senator absent (not voting, regardless of reason)?
         case
             when trim(sigla_voto) in ('AP', 'LS', 'MIS') then true

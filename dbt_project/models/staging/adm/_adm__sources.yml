@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: adm
+    description: "Raw Parquet files extracted from the ADM Senate Administrative API"
+    tables:
+      - name: ceaps
+        description: "CEAPS expense reimbursements per senator (21k+ records/year from 2019)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/ceaps.parquet"
+
+      - name: auxilio_moradia
+        description: "Housing allowance snapshot per senator from /api/v1/senadores/auxilio-moradia"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/auxilio_moradia.parquet"

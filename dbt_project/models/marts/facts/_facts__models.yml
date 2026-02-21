@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: fct_votacao
+    description: "One row per senator × voting session — joins nominal votes with session metadata and senator dimension"
+    columns:
+      - name: codigo_sessao_votacao
+        description: "Voting session ID (composite PK with codigo_parlamentar)"
+        data_tests:
+          - not_null
+
+      - name: codigo_parlamentar
+        description: "Senator code as integer (composite PK with codigo_sessao_votacao)"
+        data_tests:
+          - not_null
+
+      - name: senador_id
+        description: "Senator code as VARCHAR (FK → dim_senador)"
+
+      - name: data_sessao
+        description: "Date the plenary session took place"
+        data_tests:
+          - not_null
+
+      - name: sigla_voto
+        description: "Vote cast: Sim, Não, Abstenção, AP (absent/paired), LS (licensed), MIS (missing), P-NRV (present no vote)"
+
+      - name: voto_afirmativo
+        description: "True when the senator voted Sim"
+
+      - name: voto_negativo
+        description: "True when the senator voted Não"
+
+      - name: ausente
+        description: "True when senator was absent from the session (AP, LS, MIS codes)"
+
+      - name: partido_sigla_voto
+        description: "Party abbreviation at time of vote (historical — may differ from current dim_senador.partido_sigla)"
+
+  - name: fct_ceaps
+    description: "One row per CEAPS expense reimbursement receipt — ADM API from 2019"
+    columns:
+      - name: id
+        description: "Unique expense receipt ID from ADM API (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: senador_id
+        description: "Senator code as VARCHAR — cast from ADM integer cod_senador (FK → dim_senador)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Expense year"
+        data_tests:
+          - not_null
+
+      - name: mes
+        description: "Expense month (1-12)"
+        data_tests:
+          - not_null
+
+      - name: tipo_despesa
+        description: "Expense category (e.g. consultancy, travel, office supplies)"
+
+      - name: fornecedor
+        description: "Vendor name"
+
+      - name: valor_reembolsado
+        description: "Reimbursement amount in BRL"
+        data_tests:
+          - not_null
+
+  - name: fct_auxilio_moradia
+    description: "One row per senator — current snapshot of housing allowance and official apartment usage (ADM API)"
+    columns:
+      - name: nome_parlamentar
+        description: "Senator name uppercased (PK — no senator ID in ADM housing API)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: auxilio_moradia
+        description: "True when senator receives monthly housing allowance payment"
+        data_tests:
+          - not_null
+
+      - name: imovel_funcional
+        description: "True when senator uses an official Senate-owned apartment"
+        data_tests:
+          - not_null

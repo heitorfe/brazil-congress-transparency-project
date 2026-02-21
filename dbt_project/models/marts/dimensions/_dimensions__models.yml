@@ -1,0 +1,140 @@
+version: 2
+
+models:
+  - name: dim_senador
+    description: "One row per senator currently in office — biographical data joined with most recent mandate and party information"
+    columns:
+      - name: senador_id
+        description: "Unique senator code from the Senate API (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: nome_parlamentar
+        description: "Senator's official parliamentary name"
+        data_tests:
+          - not_null
+
+      - name: partido_sigla
+        description: "Current party abbreviation (FK → dim_partido)"
+        data_tests:
+          - not_null
+
+      - name: estado_sigla
+        description: "Elected state (2-letter abbreviation)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT',
+                         'MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO',
+                         'RR','SC','SP','SE','TO']
+
+      - name: mandato_inicio
+        description: "Start date of the senator's current mandate"
+        data_tests:
+          - not_null
+
+      - name: sexo
+        description: "Senator's gender"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Masculino', 'Feminino']
+
+  - name: dim_partido
+    description: "One row per political party registered at TSE — enriched with senate seat count"
+    columns:
+      - name: partido_sigla
+        description: "Party abbreviation (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: partido_nome
+        description: "Full party name from TSE registry"
+        data_tests:
+          - not_null
+
+  - name: dim_comissao
+    description: "One row per committee — master list from /comissao/lista"
+    columns:
+      - name: codigo_comissao
+        description: "Unique committee code (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: sigla_comissao
+        description: "Committee abbreviation (e.g. CAE, CCJ)"
+        data_tests:
+          - not_null
+
+      - name: nome_comissao
+        description: "Full committee name"
+        data_tests:
+          - not_null
+
+  - name: dim_membro_comissao
+    description: "One row per senator × committee × role period — full membership history from /senador/{code}/comissoes"
+    columns:
+      - name: membro_sk
+        description: "Surrogate key (hash of senador_id, codigo_comissao, descricao_participacao, data_inicio)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: senador_id
+        description: "Senator code (FK → dim_senador)"
+        data_tests:
+          - not_null
+
+      - name: codigo_comissao
+        description: "Committee code (FK → dim_comissao)"
+        data_tests:
+          - not_null
+
+      - name: data_inicio
+        description: "Start date of this membership period"
+        data_tests:
+          - not_null
+
+      - name: is_current
+        description: "True when data_fim is null (senator currently in this committee role)"
+
+  - name: dim_lideranca
+    description: "One row per leadership position (current snapshot) — from /composicao/lideranca (314 records)"
+    columns:
+      - name: codigo
+        description: "Unique leadership record ID (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: senador_id
+        description: "Senator code cast from integer codigoParlamentar (FK → dim_senador)"
+        data_tests:
+          - not_null
+
+      - name: data_designacao
+        description: "Leadership appointment date"
+
+  - name: dim_processo
+    description: "One row per legislative proposal — from /processo for PL, PEC, PLP, MPV from 2019"
+    columns:
+      - name: id_processo
+        description: "Unique process ID (PK) — FK to stg_legis__votacoes.id_processo"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: identificacao
+        description: "Human-readable proposal identifier e.g. 'PL 1/2024'"
+        data_tests:
+          - not_null
+
+      - name: data_apresentacao
+        description: "Date the proposal was formally submitted"
+
+      - name: tramitando
+        description: "True when the proposal is currently in legislative process"

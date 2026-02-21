@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: agg_senador_despesas
+    description: "Pre-aggregated CEAPS expense totals per senator × year × month × category — used directly by Streamlit dashboard to avoid scanning 100k+ raw rows at render time"
+    columns:
+      - name: senador_id
+        description: "Senator code (FK → dim_senador)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Expense year"
+        data_tests:
+          - not_null
+
+      - name: tipo_despesa
+        description: "Expense category"
+
+      - name: qtd_recibos
+        description: "Number of receipts in this group"
+
+      - name: total_reembolsado
+        description: "Total reimbursed amount in BRL for this aggregation group"
+
+  - name: agg_comissao_membros
+    description: "Pre-aggregated current committee membership counts — used for dashboard cards and committee filters"
+    columns:
+      - name: codigo_comissao
+        description: "Committee code (PK in this aggregation)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: num_membros_atuais
+        description: "Total current members (Titular + Suplente)"
+
+      - name: num_titulares
+        description: "Current Titular members count"
+
+      - name: num_suplentes
+        description: "Current Suplente members count"
