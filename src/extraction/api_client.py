@@ -92,6 +92,7 @@ class SenateApiClient:
         Parsed JSON (dict or list).
         """
         url = f"{LEGIS_BASE}{path}{suffix}"
+        print(url)
         return self._get(url, params, delay=self._legis_delay)
 
     def get_adm(
