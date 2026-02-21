@@ -58,3 +58,8 @@ def get_parties() -> list[str]:
             SELECT partido_sigla FROM main_marts.dim_partido ORDER BY partido_sigla
         """).fetchall()
     return [r[0] for r in rows]
+
+def adhoc_query(sql: str) -> pl.DataFrame:
+    """Run any SQL query against the warehouse. Not intended for production use."""
+    with _con() as con:
+        return con.execute(sql).pl()
