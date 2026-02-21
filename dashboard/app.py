@@ -84,3 +84,6 @@ if selected_rows:
     senator_id = filtered["senador_id"][idx]
     st.session_state["selected_senator_id"] = senator_id
     st.switch_page("pages/1_Perfil_do_Senador.py")
+    
+
+
