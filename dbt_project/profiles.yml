@@ -1,0 +1,7 @@
+brazil_senate:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/warehouse/senate.duckdb
+      threads: 4

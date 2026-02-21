@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "Bronze layer — raw Parquet files extracted from the Senate Open Data API"
+    tables:
+      - name: senadores
+        description: "One row per senator currently in office (biographical data)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/senadores.parquet"
+
+      - name: mandatos
+        description: "One row per mandate period (a senator may have multiple mandates)"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/mandatos.parquet"
