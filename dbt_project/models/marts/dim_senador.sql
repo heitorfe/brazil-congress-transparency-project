@@ -36,6 +36,8 @@ final as (
         s.foto_url,
         s.pagina_url,
         s.email,
+        s.naturalidade,
+        s.uf_naturalidade,
         s.partido_sigla,
         p.partido_nome,
         p.partido_numero_tse,

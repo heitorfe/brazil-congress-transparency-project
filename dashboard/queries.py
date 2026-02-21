@@ -7,7 +7,8 @@ import duckdb
 import polars as pl
 from pathlib import Path
 
-DB_PATH = Path("data/warehouse/senate.duckdb")
+# Absolute path — robust regardless of working directory when Streamlit launches
+DB_PATH = Path(__file__).parent.parent / "data" / "warehouse" / "senate.duckdb"
 
 
 def _con() -> duckdb.DuckDBPyConnection:
@@ -34,7 +35,7 @@ def get_all_senators() -> pl.DataFrame:
                 mandato_fim,
                 descricao_participacao,
                 em_exercicio
-            FROM marts.dim_senador
+            FROM main_marts.dim_senador
             WHERE em_exercicio = true
             ORDER BY nome_parlamentar
         """).pl()
@@ -45,7 +46,7 @@ def get_senator_by_id(senador_id: str) -> pl.DataFrame:
     with _con() as con:
         return con.execute("""
             SELECT *
-            FROM marts.dim_senador
+            FROM main_marts.dim_senador
             WHERE senador_id = ?
         """, [senador_id]).pl()
 
@@ -54,6 +55,6 @@ def get_parties() -> list[str]:
     """Sorted list of party siglas with at least one senator in office."""
     with _con() as con:
         rows = con.execute("""
-            SELECT partido_sigla FROM marts.dim_partido ORDER BY partido_sigla
+            SELECT partido_sigla FROM main_marts.dim_partido ORDER BY partido_sigla
         """).fetchall()
     return [r[0] for r in rows]
