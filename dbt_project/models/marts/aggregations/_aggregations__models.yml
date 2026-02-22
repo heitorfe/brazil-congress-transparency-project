@@ -40,3 +40,38 @@ models:
 
       - name: num_suplentes
         description: "Current Suplente members count"
+
+  - name: agg_pessoal_mensal
+    description: "Pre-aggregated staff payroll totals per (ano × mes × vinculo × lotacao_sigla) — used by Streamlit to avoid scanning 840k+ raw rows at render time"
+    columns:
+      - name: ano
+        description: "Payroll year"
+        data_tests:
+          - not_null
+
+      - name: mes
+        description: "Payroll month (1–12)"
+        data_tests:
+          - not_null
+
+      - name: vinculo
+        description: "Employment bond type (EFETIVO, COMISSIONADO, etc.) — NULL replaced with 'NÃO INFORMADO'"
+        data_tests:
+          - not_null
+
+      - name: lotacao_sigla
+        description: "Organizational unit abbreviation — NULL replaced with 'NÃO INFORMADO'"
+        data_tests:
+          - not_null
+
+      - name: num_servidores
+        description: "Distinct staff members in this group"
+
+      - name: total_liquido
+        description: "Sum of net pay (remuneracao_liquida) for this group"
+
+      - name: total_bruto
+        description: "Sum of gross pay (remuneracao_bruta) for this group"
+
+      - name: total_horas_extras_valor
+        description: "Sum of overtime component embedded in the payroll (not from fct_hora_extra)"

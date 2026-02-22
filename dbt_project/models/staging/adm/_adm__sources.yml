@@ -13,3 +13,28 @@ sources:
         description: "Housing allowance snapshot per senator from /api/v1/senadores/auxilio-moradia"
         external:
           location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/auxilio_moradia.parquet"
+
+      - name: servidores
+        description: "Current Senate staff registry from /api/v1/servidores/servidores — full snapshot"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/servidores.parquet"
+
+      - name: pensionistas
+        description: "Current Senate pensioner registry from /api/v1/servidores/pensionistas — full snapshot"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/pensionistas.parquet"
+
+      - name: remuneracoes_servidores
+        description: "Monthly staff payroll from /api/v1/servidores/remuneracoes/{ano}/{mes} — 2019 to present"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/remuneracoes_servidores.parquet"
+
+      - name: remuneracoes_pensionistas
+        description: "Monthly pensioner payroll from /api/v1/servidores/pensionistas/remuneracoes/{ano}/{mes} — 2019 to present"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/remuneracoes_pensionistas.parquet"
+
+      - name: horas_extras
+        description: "Monthly overtime payments from /api/v1/servidores/horas-extras/{ano}/{mes} — 2019 to present"
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/horas_extras.parquet"

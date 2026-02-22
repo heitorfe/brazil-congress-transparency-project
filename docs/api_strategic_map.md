@@ -1,6 +1,6 @@
 # Brazilian Senate Open Data APIs — Strategic Architecture Map
 
-**Last updated:** 2026-02-21
+**Last updated:** 2026-02-22
 **API version:** 4.0.3.56 (legis), v1 (adm)
 **Purpose:** Master reference for extraction design, dbt modeling, and UX prioritization.
 
@@ -158,8 +158,11 @@ The ADM API is a standard REST JSON API under `/api/v1/`.
 | `GET /api/v1/contratacoes/contratos` | **Medium** | Yes | Full snapshot | Medium | **HYBRID** | Senate service contracts |
 | `GET /api/v1/contratacoes/empresas` | **Medium** | Yes | Full snapshot | Low | **HYBRID** | Contracted companies (292 records) |
 | `GET /api/v1/contratacoes/licitacoes` | **Medium** | Partial | Date-based | Medium | **HYBRID** | Bidding processes |
-| `GET /api/v1/servidores/servidores` | **Low** | Partial | No | Low | **LIVE** | Senate staff list |
-| `GET /api/v1/servidores/remuneracoes/{ano}/{mes}` | **Low** | Yes | Month-based | Low | **LIVE** | Staff salaries; high volume |
+| `GET /api/v1/servidores/servidores` | **High** | Yes | Full snapshot | Low | **CORE** | Senate staff registry; ~2.2k records; `dim_servidor` |
+| `GET /api/v1/servidores/remuneracoes/{ano}/{mes}` | **High** | Yes | **Month-based** | Low | **CORE** | Staff payroll; ~12k records/month; `fct_remuneracao_servidor` |
+| `GET /api/v1/servidores/pensionistas` | **High** | Yes | Full snapshot | Low | **CORE** | Pensioner registry; ~2k records; `dim_pensionista` |
+| `GET /api/v1/servidores/pensionistas/remuneracoes/{ano}/{mes}` | **High** | Yes | **Month-based** | Low | **CORE** | Pensioner payroll; `fct_remuneracao_pensionista` |
+| `GET /api/v1/servidores/horas-extras/{ano}/{mes}` | **Medium** | Yes | **Month-based** | Low | **CORE** | Overtime payments; ~525/month; `fct_hora_extra` |
 | `GET /api/v1/supridos/{ano}` | **Low** | Partial | Year-based | Low | **LIVE** | Petty cash grants; niche |
 | `GET /api/v1/contratacoes/terceirizados` | **Low** | No | No | Low | **LIVE** | Outsourced workers |
 
@@ -391,6 +394,12 @@ Computed in dbt by joining `fact_voto` with `fact_orientacao_bancada` on vote ID
 | `fact_auxilio_moradia` | Full refresh weekly | N/A (snapshot) | Low |
 | `dim_comissao` | Full refresh weekly | N/A | Low |
 | `fact_votacao_comissao` | **Per senator**, weekly | Loop 81 senators | Medium |
+| `dim_servidor` | Full refresh weekly | N/A (snapshot) | Low — ~2.2k records |
+| `dim_pensionista` | Full refresh weekly | N/A (snapshot) | Low — ~2k records |
+| `fct_remuneracao_servidor` | **Monthly** (incremental merge on `data_competencia`) | 2019-01 → today (~152k/year) | Medium — ~1.8M rows (7 years) |
+| `fct_remuneracao_pensionista` | **Monthly** (incremental merge) | 2019-01 → today | Low — ~200k rows total |
+| `fct_hora_extra` | **Monthly** (full refresh — small) | 2019-01 → today | Low — ~75k rows total |
+| `agg_pessoal_mensal` | Full refresh (derived from fct_remuneracao_servidor) | N/A | Low — ~5k rows |
 
 ---
 
@@ -422,6 +431,8 @@ Top 10 from a transparency / journalistic perspective:
 | `/taquigrafia/notas/sessao/{id}` | **Very High** — full text per session | Never materialize; live only |
 | `/processo/documento` | **Very High** — full bill text | Never materialize; link to `urlDocumento` |
 | `orientacaoBancada` | **Low** — ~26 records per 6 months | Simple date window extraction |
+| `/api/v1/servidores/remuneracoes/{ano}/{mes}` | **Medium** — ~12.7k records/month (2025 avg) | Monthly loop; monetary fields are BR locale strings → parse in staging |
+| `/api/v1/servidores/horas-extras/{ano}/{mes}` | **Low** — ~525 records/month | Nested `horas_extras[]` daily array intentionally NOT exploded; monthly `valorTotal` only |
 
 ---
 
@@ -447,6 +458,17 @@ Top 10 from a transparency / journalistic perspective:
   **Replacement:** `/votacao` (already implemented).
 - `/senador/{code}/liderancas`, `/senador/{code}/autorias`, `/senador/{code}/relatorias`
   — deprecated. Use `/composicao/lideranca` and `/processo/relatoria` instead.
+
+### Brazilian Locale Decimal Format (ADM API)
+- The ADM API returns **all monetary values as locale-formatted strings**, not numbers.
+  Example: `"36.380,05"` (`.` = thousands separator, `,` = decimal separator).
+- DuckDB `CAST(... AS DECIMAL)` will fail on these strings with:
+  `Conversion Error: Could not convert string "36.380,05" to DECIMAL(12,2)`
+- **Strategy adopted:** Keep raw strings in Parquet (bronze = exact copy of API).
+  Parse in dbt staging using `TRY_CAST(REPLACE(REPLACE(col::varchar, '.', ''), ',', '.') AS DECIMAL(12,2))`.
+- Applies to: all monetary columns in `stg_adm__remuneracoes_servidores`,
+  `stg_adm__remuneracoes_pensionistas`, and `stg_adm__horas_extras`.
+- `TRY_CAST` (not `CAST`) is intentional — returns NULL for missing/malformed values instead of erroring.
 
 ### Encoding
 - API returns UTF-8. Python on Windows defaults to cp1252.
@@ -490,6 +512,16 @@ Phase 2C — Legislative Activity
 Phase 2D — Financial Transparency
   → fact_ceaps                 (CEAPS expenses per receipt)
   → fact_auxilio_moradia       (housing allowance snapshot)
+
+Phase 2E — Staff & Payroll Transparency  ✅ COMPLETE (2026-02-22)
+  ✓ dim_servidor               (staff registry snapshot)
+  ✓ dim_pensionista            (pensioner registry snapshot)
+  ✓ fct_remuneracao_servidor   (staff payroll, 2025 backfill)
+  ✓ fct_remuneracao_pensionista (pensioner payroll, 2025 backfill)
+  ✓ fct_hora_extra             (overtime, 2025 backfill)
+  ✓ agg_pessoal_mensal         (monthly summary by vinculo × lotacao)
+  ✓ Dashboard page: Transparência de Pessoal (4 tabs)
+  Note: Full 2019–present backfill requires re-running extract_servidores.py --start-year 2019
 ```
 
 ### Hybrid Fetch Strategy
@@ -576,6 +608,9 @@ All samples are saved in `data/api_sample/`:
 | `contratacoes_empresas.json` | ADM `/api/v1/contratacoes/empresas` | 3 of 292 |
 | `despesas_ceaps_2026.json` | ADM `/api/v1/senadores/despesas_ceaps/2026` | Pre-existing |
 | `empresas_contratadas.json` | ADM `/api/v1/contratacoes/empresas` | Pre-existing |
+| `servidores.json` | ADM `/api/v1/servidores/servidores` | 5 of ~2.2k |
+| `pensionistas.json` | ADM `/api/v1/servidores/pensionistas` | 5 of ~2k |
+| `horas_extras.json` | ADM `/api/v1/servidores/horas-extras/{ano}/{mes}` | 5 of ~525/month |
 
 ---
 

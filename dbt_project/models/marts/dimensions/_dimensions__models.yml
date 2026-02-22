@@ -138,3 +138,57 @@ models:
 
       - name: tramitando
         description: "True when the proposal is currently in legislative process"
+
+  - name: dim_servidor
+    description: "One row per Senate staff member — current snapshot from /api/v1/servidores/servidores"
+    columns:
+      - name: sequencial
+        description: "Unique staff member ID from ADM API (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: nome
+        description: "Full name of the staff member"
+        data_tests:
+          - not_null
+
+      - name: vinculo
+        description: "Employment bond type"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['EFETIVO', 'COMISSIONADO', 'REQUISITADO', 'EXERCICIO_PROVISORIO', 'PARLAMENTAR']
+
+      - name: situacao
+        description: "Current employment status"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['ATIVO', 'INATIVO', 'APOSENTADO', 'DESLIGADO']
+
+      - name: lotacao_sigla
+        description: "Abbreviation of the organizational unit where the staff member is assigned"
+
+      - name: lotacao_nome
+        description: "Full name of the organizational unit"
+
+  - name: dim_pensionista
+    description: "One row per Senate pensioner — current snapshot from /api/v1/servidores/pensionistas"
+    columns:
+      - name: sequencial
+        description: "Unique pensioner ID from ADM API (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: nome
+        description: "Full name of the pensioner"
+        data_tests:
+          - not_null
+
+      - name: nome_instituidor
+        description: "Name of the deceased staff member whose pension this is derived from"
+
+      - name: data_inicio_pensao
+        description: "Date when pension payments began"

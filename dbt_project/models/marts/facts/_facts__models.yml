@@ -90,3 +90,83 @@ models:
         description: "True when senator uses an official Senate-owned apartment"
         data_tests:
           - not_null
+
+  - name: fct_remuneracao_servidor
+    description: "One row per staff member × month × payroll type — ADM API /api/v1/servidores/remuneracoes/{ano}/{mes} from 2019. Incremental merge on data_competencia."
+    columns:
+      - name: sequencial
+        description: "Staff member ID (composite PK with ano, mes, tipo_folha — FK → dim_servidor)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Payroll year"
+        data_tests:
+          - not_null
+
+      - name: mes
+        description: "Payroll month (1–12)"
+        data_tests:
+          - not_null
+
+      - name: tipo_folha
+        description: "Payroll type: regular, supplementary (13th salary), etc."
+
+      - name: data_competencia
+        description: "First-of-month DATE constructed from (ano, mes) — used as incremental watermark"
+        data_tests:
+          - not_null
+
+      - name: remuneracao_liquida
+        description: "Net take-home pay in BRL after all deductions"
+
+      - name: remuneracao_bruta
+        description: "Computed gross pay: sum of all positive pay components"
+
+  - name: fct_remuneracao_pensionista
+    description: "One row per pensioner × month — ADM API /api/v1/servidores/pensionistas/remuneracoes/{ano}/{mes} from 2019. Incremental merge on data_competencia."
+    columns:
+      - name: sequencial
+        description: "Pensioner ID (composite PK with ano, mes — FK → dim_pensionista)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Payroll year"
+        data_tests:
+          - not_null
+
+      - name: mes
+        description: "Payroll month (1–12)"
+        data_tests:
+          - not_null
+
+      - name: remuneracao_liquida
+        description: "Net monthly pension payment in BRL"
+
+      - name: remuneracao_bruta
+        description: "Computed gross pension: sum of all positive components"
+
+  - name: fct_hora_extra
+    description: "One row per staff member × payment month — monthly overtime summary from /api/v1/servidores/horas-extras/{ano}/{mes} from 2019. Full refresh (small table)."
+    columns:
+      - name: sequencial
+        description: "Staff member ID (composite PK with ano_pagamento, mes_pagamento — FK → dim_servidor)"
+        data_tests:
+          - not_null
+
+      - name: ano_pagamento
+        description: "Year when overtime was paid"
+        data_tests:
+          - not_null
+
+      - name: mes_pagamento
+        description: "Month when overtime was paid (1–12)"
+        data_tests:
+          - not_null
+
+      - name: valor_total
+        description: "Total overtime payment amount in BRL for this staff member in this month"
+
+      - name: lotacao_sigla
+        description: "Organizational unit of the staff member (from dim_servidor)"

@@ -386,3 +386,256 @@ def get_senator_housing(senador_id: str) -> pl.DataFrame:
             FROM main_marts.fct_auxilio_moradia
             WHERE senador_id = ?
         """, [senador_id]).pl()
+
+
+# ── Staff & Payroll (Servidores) queries ────────────────────────────────────
+
+def get_pessoal_kpis() -> dict:
+    """Key indicators for the staff payroll page: active staff, pensioners, latest month totals."""
+    with _con() as con:
+        servidores = con.execute("""
+            SELECT COUNT(*) FROM main_marts.dim_servidor WHERE situacao = 'ATIVO'
+        """).fetchone()[0]
+
+        pensionistas = con.execute("""
+            SELECT COUNT(*) FROM main_marts.dim_pensionista
+        """).fetchone()[0]
+
+        # Latest full month available in the payroll data
+        latest = con.execute("""
+            SELECT ano, mes, SUM(total_liquido) AS total_liquido, SUM(total_bruto) AS total_bruto
+            FROM main_marts.agg_pessoal_mensal
+            WHERE (ano, mes) = (
+                SELECT ano, mes FROM main_marts.agg_pessoal_mensal
+                ORDER BY ano DESC, mes DESC LIMIT 1
+            )
+            GROUP BY ano, mes
+        """).pl()
+
+        pensionistas_latest = con.execute("""
+            SELECT COALESCE(SUM(remuneracao_liquida), 0)
+            FROM main_marts.fct_remuneracao_pensionista
+            WHERE (ano, mes) = (
+                SELECT ano, mes FROM main_marts.fct_remuneracao_pensionista
+                ORDER BY ano DESC, mes DESC LIMIT 1
+            )
+        """).fetchone()[0]
+
+        horas_latest = con.execute("""
+            SELECT COALESCE(SUM(valor_total), 0)
+            FROM main_marts.fct_hora_extra
+            WHERE (ano_pagamento, mes_pagamento) = (
+                SELECT ano_pagamento, mes_pagamento FROM main_marts.fct_hora_extra
+                ORDER BY ano_pagamento DESC, mes_pagamento DESC LIMIT 1
+            )
+        """).fetchone()[0]
+
+    result = {
+        "num_servidores_ativos": servidores,
+        "num_pensionistas": pensionistas,
+        "total_liquido_mes": float(latest["total_liquido"][0]) if len(latest) > 0 else 0,
+        "total_bruto_mes": float(latest["total_bruto"][0]) if len(latest) > 0 else 0,
+        "total_pensionistas_mes": float(pensionistas_latest or 0),
+        "total_horas_extras_mes": float(horas_latest or 0),
+        "ano_ref": int(latest["ano"][0]) if len(latest) > 0 else 0,
+        "mes_ref": int(latest["mes"][0]) if len(latest) > 0 else 0,
+    }
+    return result
+
+
+def get_remuneracao_trend() -> pl.DataFrame:
+    """Monthly payroll trend (staff + pensioners), 2019-present."""
+    with _con() as con:
+        servidores = con.execute("""
+            SELECT
+                ano,
+                mes,
+                data_competencia,
+                SUM(total_liquido) AS total_liquido_servidores,
+                SUM(total_bruto)   AS total_bruto_servidores,
+                SUM(num_servidores) AS num_servidores
+            FROM main_marts.agg_pessoal_mensal
+            GROUP BY ano, mes, data_competencia
+            ORDER BY ano, mes
+        """).pl()
+
+        pensionistas = con.execute("""
+            SELECT
+                ano,
+                mes,
+                SUM(remuneracao_liquida) AS total_liquido_pensionistas
+            FROM main_marts.fct_remuneracao_pensionista
+            GROUP BY ano, mes
+            ORDER BY ano, mes
+        """).pl()
+
+    return servidores.join(pensionistas, on=["ano", "mes"], how="left")
+
+
+def get_servidores_por_vinculo(ano: int, mes: int) -> pl.DataFrame:
+    """Staff count and total payroll broken down by employment bond type for a given month."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                vinculo,
+                SUM(num_servidores) AS num_servidores,
+                SUM(total_liquido)  AS total_liquido,
+                SUM(total_bruto)    AS total_bruto
+            FROM main_marts.agg_pessoal_mensal
+            WHERE ano = ? AND mes = ?
+            GROUP BY vinculo
+            ORDER BY total_bruto DESC
+        """, [ano, mes]).pl()
+
+
+def get_top_remuneracoes(ano: int, mes: int, n: int = 20) -> pl.DataFrame:
+    """Top N staff earners for a given month by net pay."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                f.nome,
+                f.sequencial,
+                f.remuneracao_liquida,
+                f.remuneracao_bruta,
+                f.remuneracao_basica,
+                f.funcao_comissionada,
+                f.vantagens_indenizatorias,
+                f.tipo_folha,
+                COALESCE(f.lotacao_sigla, 'N/D') AS lotacao_sigla,
+                COALESCE(f.lotacao_nome,  'N/D') AS lotacao_nome,
+                COALESCE(f.vinculo,       'N/D') AS vinculo,
+                COALESCE(f.cargo_nome,    'N/D') AS cargo_nome
+            FROM main_marts.fct_remuneracao_servidor f
+            WHERE f.ano = ? AND f.mes = ?
+            ORDER BY f.remuneracao_liquida DESC
+            LIMIT ?
+        """, [ano, mes, n]).pl()
+
+
+def get_remuneracao_componentes(ano: int, mes: int) -> pl.DataFrame:
+    """Sum of each pay component for a given month — used for stacked breakdown chart."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                SUM(remuneracao_basica)        AS remuneracao_basica,
+                SUM(vantagens_pessoais)        AS vantagens_pessoais,
+                SUM(funcao_comissionada)       AS funcao_comissionada,
+                SUM(gratificacao_natalina)     AS gratificacao_natalina,
+                SUM(horas_extras)              AS horas_extras,
+                SUM(outras_eventuais)          AS outras_eventuais,
+                SUM(diarias)                   AS diarias,
+                SUM(auxilios)                  AS auxilios,
+                SUM(abono_permanencia)         AS abono_permanencia,
+                SUM(vantagens_indenizatorias)  AS vantagens_indenizatorias
+            FROM main_marts.fct_remuneracao_servidor
+            WHERE ano = ? AND mes = ?
+        """, [ano, mes]).pl()
+
+
+def get_lotacoes_top(ano: int, mes: int, n: int = 15) -> pl.DataFrame:
+    """Top N organizational units by total payroll for a given month."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                lotacao_sigla,
+                lotacao_nome,
+                SUM(num_servidores) AS num_servidores,
+                SUM(total_liquido)  AS total_liquido,
+                SUM(total_bruto)    AS total_bruto
+            FROM main_marts.agg_pessoal_mensal
+            WHERE ano = ? AND mes = ?
+              AND lotacao_sigla != 'NÃO INFORMADO'
+            GROUP BY lotacao_sigla, lotacao_nome
+            ORDER BY total_bruto DESC
+            LIMIT ?
+        """, [ano, mes, n]).pl()
+
+
+def get_pensionistas_trend() -> pl.DataFrame:
+    """Monthly pensioner payroll trend, 2019-present."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                mes,
+                data_competencia,
+                COUNT(DISTINCT sequencial) AS num_pensionistas,
+                SUM(remuneracao_liquida)   AS total_liquido,
+                SUM(remuneracao_bruta)     AS total_bruto
+            FROM main_marts.fct_remuneracao_pensionista
+            GROUP BY ano, mes, data_competencia
+            ORDER BY ano, mes
+        """).pl()
+
+
+def get_top_pensionistas(ano: int, mes: int, n: int = 10) -> pl.DataFrame:
+    """Top N pensioners by net pay for a given month."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                f.nome,
+                f.sequencial,
+                f.remuneracao_liquida,
+                f.remuneracao_bruta,
+                f.remuneracao_basica,
+                f.tipo_folha,
+                COALESCE(p.nome_instituidor, 'N/D') AS nome_instituidor,
+                COALESCE(p.vinculo, 'N/D')          AS vinculo,
+                COALESCE(p.cargo_nome, 'N/D')       AS cargo_nome
+            FROM main_marts.fct_remuneracao_pensionista f
+            LEFT JOIN main_marts.dim_pensionista p USING (sequencial)
+            WHERE f.ano = ? AND f.mes = ?
+            ORDER BY f.remuneracao_liquida DESC
+            LIMIT ?
+        """, [ano, mes, n]).pl()
+
+
+def get_horas_extras_trend() -> pl.DataFrame:
+    """Monthly overtime payments trend, 2019-present."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano_pagamento                  AS ano,
+                mes_pagamento                  AS mes,
+                data_competencia,
+                COUNT(DISTINCT sequencial)     AS num_servidores,
+                SUM(valor_total)               AS total_valor
+            FROM main_marts.fct_hora_extra
+            GROUP BY ano_pagamento, mes_pagamento, data_competencia
+            ORDER BY ano_pagamento, mes_pagamento
+        """).pl()
+
+
+def get_horas_extras_por_lotacao(ano: int, mes: int, n: int = 15) -> pl.DataFrame:
+    """Top N organizational units by overtime value for a given month."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                COALESCE(lotacao_sigla, 'N/D') AS lotacao_sigla,
+                COALESCE(lotacao_nome,  'N/D') AS lotacao_nome,
+                COUNT(DISTINCT sequencial)     AS num_servidores,
+                SUM(valor_total)               AS total_valor
+            FROM main_marts.fct_hora_extra
+            WHERE ano_pagamento = ? AND mes_pagamento = ?
+            GROUP BY lotacao_sigla, lotacao_nome
+            ORDER BY total_valor DESC
+            LIMIT ?
+        """, [ano, mes, n]).pl()
+
+
+def get_remuneracoes_anos_disponiveis() -> list[int]:
+    """List of distinct years available in the staff payroll data."""
+    with _con() as con:
+        rows = con.execute("""
+            SELECT DISTINCT ano FROM main_marts.agg_pessoal_mensal ORDER BY ano DESC
+        """).fetchall()
+    return [r[0] for r in rows]
+
+
+def get_remuneracoes_meses_disponiveis(ano: int) -> list[int]:
+    """List of distinct months available for a given year in the staff payroll data."""
+    with _con() as con:
+        rows = con.execute("""
+            SELECT DISTINCT mes FROM main_marts.agg_pessoal_mensal WHERE ano = ? ORDER BY mes DESC
+        """, [ano]).fetchall()
+    return [r[0] for r in rows]
