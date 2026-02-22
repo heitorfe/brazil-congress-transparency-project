@@ -14,6 +14,11 @@ DB_PATH = Path(__file__).parent.parent / "data" / "warehouse" / "senate.duckdb"
 def _con() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(DB_PATH), read_only=True)
 
+def list_tables() -> list[str]:
+    """List all tables in the main_marts schema."""
+    with _con() as con:
+        rows = con.execute("SHOW TABLES FROM main_marts").fetchall()
+    return [r[0] for r in rows]
 
 def get_all_senators() -> pl.DataFrame:
     """All senators currently in office."""

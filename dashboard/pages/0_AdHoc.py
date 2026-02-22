@@ -2,7 +2,14 @@
 import streamlit as st
 
 from queries import adhoc_query
+from queries import list_tables
 
+with st.sidebar:
+    st.header("Available Tables")
+    tables = list_tables()
+    selected_table = st.selectbox("Select a table", tables)
+    if st.button("Use Table"):
+        st.session_state["sql"] = f"SELECT * FROM {selected_table}"
 
 
 st.set_page_config(

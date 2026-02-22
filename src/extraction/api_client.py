@@ -59,7 +59,7 @@ class SenateApiClient:
     ) -> None:
         self._legis_delay = legis_delay
         self._adm_delay = adm_delay
-        self._client = httpx.Client(timeout=timeout)
+        self._client = httpx.Client(timeout=timeout, follow_redirects=True)
 
     # ------------------------------------------------------------------
     # Public helpers
