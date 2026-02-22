@@ -1,6 +1,17 @@
 import streamlit as st
+import plotly.express as px
+import polars as pl
 
-from queries import get_all_senators, get_senator_by_id
+from queries import (
+    get_all_senators,
+    get_senator_by_id,
+    get_senator_votes,
+    get_senator_vote_summary,
+    get_senator_comissoes,
+    get_senator_ceaps,
+    get_senator_liderancas,
+    get_senator_housing,
+)
 
 st.set_page_config(
     page_title="Perfil do Senador",
@@ -34,14 +45,13 @@ st.session_state["selected_senator_id"] = senator_id
 
 # ── Load selected senator ──────────────────────────────────────────────────
 row_df = get_senator_by_id(senator_id)
-
 if row_df.is_empty():
     st.error("Senador não encontrado.")
     st.stop()
 
 s = row_df.row(0, named=True)
 
-# ── Layout ─────────────────────────────────────────────────────────────────
+# ── Header: Photo + Identity ───────────────────────────────────────────────
 col_photo, col_info = st.columns([1, 3])
 
 with col_photo:
@@ -66,28 +76,287 @@ with col_info:
     c5.metric("Fim do mandato",    str(s["mandato_fim"])    if s["mandato_fim"]    else "—")
     c6.metric("Participação",      s["descricao_participacao"] or "—")
 
+    # Reelection alert
+    mandato_fim_ano = str(s["mandato_fim"])[:4] if s["mandato_fim"] else ""
+    if mandato_fim_ano in ("2026", "2027"):
+        st.warning(
+            "🗳️ **Candidato(a) à reeleição nas eleições de 2026.** "
+            "O mandato atual encerra em 2027."
+        )
+
+# ── Accountability Scorecard ───────────────────────────────────────────────
+st.divider()
+st.subheader("Ficha de Accountability")
+st.caption("Indicadores para apoiar a decisão de voto na reeleição")
+
+vote_summary = get_senator_vote_summary(senator_id)
+ceaps_df     = get_senator_ceaps(senator_id)
+comissoes_df = get_senator_comissoes(senator_id)
+housing_df   = get_senator_housing(senator_id)
+
+# Participation rate
+if not vote_summary.is_empty():
+    v = vote_summary.row(0, named=True)
+    taxa = v["taxa_presenca"] or 0.0
+    total_votes = v["total_votacoes"] or 0
+else:
+    taxa = 0.0
+    total_votes = 0
+
+# CEAPS total
+ceaps_total = ceaps_df["total_reembolsado"].sum() if not ceaps_df.is_empty() else 0.0
+
+# Committee count (current)
+n_comissoes = len(comissoes_df.filter(pl.col("is_current") == True)) if not comissoes_df.is_empty() else 0
+
+# Housing allowance
+if not housing_df.is_empty():
+    h = housing_df.row(0, named=True)
+    housing_label = "Sim" if h["auxilio_moradia"] else "Não"
+    imovel_label  = "Sim" if h["imovel_funcional"] else "Não"
+else:
+    housing_label = "Não informado"
+    imovel_label  = "Não informado"
+
+sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+sc1.metric(
+    "Taxa de presença",
+    f"{taxa}%",
+    help=f"Baseado em {total_votes} votações registradas no plenário desde 2019",
+)
+sc2.metric(
+    "Total CEAPS (todos os anos)",
+    f"R$ {ceaps_total:,.0f}".replace(",", "."),
+    help="Reembolsos de despesas do exercício parlamentar (CEAPS)",
+)
+sc3.metric(
+    "Comissões atuais",
+    n_comissoes,
+    help="Número de comissões com participação ativa",
+)
+sc4.metric(
+    "Auxílio-moradia",
+    housing_label,
+    help="Recebe auxílio-moradia do Senado",
+)
+sc5.metric(
+    "Imóvel funcional",
+    imovel_label,
+    help="Utiliza apartamento funcional do Senado",
+)
+
 st.divider()
 
-# ── Additional info ────────────────────────────────────────────────────────
-col_a, col_b = st.columns(2)
+# ── Tabs ───────────────────────────────────────────────────────────────────
+tab_perfil, tab_votos, tab_comissoes, tab_despesas, tab_lideranca = st.tabs([
+    "👤 Perfil",
+    "🗳️ Votações",
+    "🏛️ Comissões",
+    "💰 Despesas (CEAPS)",
+    "⭐ Liderança",
+])
 
-with col_a:
-    st.subheader("Informações pessoais")
-    st.write(f"**Nome completo:** {s['nome_completo'] or '—'}")
-    st.write(f"**Data de nascimento:** {s['data_nascimento'] or '—'}")
-    st.write(f"**Naturalidade:** {s['naturalidade'] or '—'} / {s['uf_naturalidade'] or '—'}")
-    if s["email"]:
-        st.write(f"**E-mail:** {s['email']}")
-    if s["pagina_url"]:
-        st.markdown(f"**Página oficial:** [{s['pagina_url']}]({s['pagina_url']})")
+# ── Tab 1: Perfil ──────────────────────────────────────────────────────────
+with tab_perfil:
+    col_a, col_b = st.columns(2)
 
-with col_b:
-    st.subheader("Mandato atual")
-    st.write(f"**Partido:** {s['partido_nome'] or s['partido_sigla'] or '—'}")
-    st.write(f"**Legislatura de início:** {s['legislatura_inicio'] or '—'}")
-    st.write(f"**Legislatura de fim:** {s['legislatura_fim'] or '—'}")
-    em_exercicio = "✅ Em exercício" if s["em_exercicio"] else "⏹ Fora do exercício"
-    st.write(f"**Status:** {em_exercicio}")
+    with col_a:
+        st.subheader("Informações pessoais")
+        st.write(f"**Nome completo:** {s['nome_completo'] or '—'}")
+        st.write(f"**Data de nascimento:** {s['data_nascimento'] or '—'}")
+        st.write(f"**Naturalidade:** {s['naturalidade'] or '—'} / {s['uf_naturalidade'] or '—'}")
+        if s["email"]:
+            st.write(f"**E-mail:** {s['email']}")
+        if s["pagina_url"]:
+            st.markdown(f"**Página oficial:** [{s['pagina_url']}]({s['pagina_url']})")
+
+    with col_b:
+        st.subheader("Mandato atual")
+        st.write(f"**Partido:** {s['partido_nome'] or s['partido_sigla'] or '—'}")
+        st.write(f"**Legislatura de início:** {s['legislatura_inicio'] or '—'}")
+        st.write(f"**Legislatura de fim:** {s['legislatura_fim'] or '—'}")
+        em_exercicio = "✅ Em exercício" if s["em_exercicio"] else "⏹ Fora do exercício"
+        st.write(f"**Status:** {em_exercicio}")
+
+# ── Tab 2: Votações ────────────────────────────────────────────────────────
+with tab_votos:
+    votes_df = get_senator_votes(senator_id)
+
+    if votes_df.is_empty():
+        st.info("Nenhuma votação registrada para este senador.")
+    else:
+        # Vote distribution chart
+        if not vote_summary.is_empty():
+            v = vote_summary.row(0, named=True)
+            dist_data = {
+                "Tipo de voto": ["Sim", "Não", "Abstenção", "Ausente"],
+                "Quantidade": [
+                    v["total_sim"] or 0,
+                    v["total_nao"] or 0,
+                    v["total_abstencao"] or 0,
+                    v["total_ausente"] or 0,
+                ],
+            }
+            import pandas as pd
+            fig_dist = px.bar(
+                pd.DataFrame(dist_data),
+                x="Tipo de voto",
+                y="Quantidade",
+                color="Tipo de voto",
+                color_discrete_map={
+                    "Sim": "#2ecc71",
+                    "Não": "#e74c3c",
+                    "Abstenção": "#f39c12",
+                    "Ausente": "#95a5a6",
+                },
+                title=f"Distribuição de votos — {v['total_votacoes']} votações registradas",
+            )
+            fig_dist.update_layout(showlegend=False, height=300, margin=dict(t=40, b=10))
+            st.plotly_chart(fig_dist, use_container_width=True)
+
+        # Votes table
+        st.subheader("Últimas votações")
+        vote_display = votes_df.select([
+            "data_sessao",
+            "materia_identificacao",
+            "materia_ementa",
+            "sigla_voto",
+            "resultado_votacao",
+        ]).rename({
+            "data_sessao":          "Data",
+            "materia_identificacao": "Matéria",
+            "materia_ementa":        "Ementa",
+            "sigla_voto":            "Voto",
+            "resultado_votacao":     "Resultado",
+        })
+        st.dataframe(vote_display, use_container_width=True, hide_index=True)
+
+# ── Tab 3: Comissões ───────────────────────────────────────────────────────
+with tab_comissoes:
+    if comissoes_df.is_empty():
+        st.info("Nenhuma comissão registrada para este senador.")
+    else:
+        st.subheader("Comissões atuais")
+        current = comissoes_df.filter(pl.col("is_current") == True)
+        if not current.is_empty():
+            st.dataframe(
+                current.select([
+                    "sigla_comissao", "nome_comissao", "sigla_casa",
+                    "descricao_participacao", "data_inicio",
+                ]).rename({
+                    "sigla_comissao":        "Sigla",
+                    "nome_comissao":         "Comissão",
+                    "sigla_casa":            "Casa",
+                    "descricao_participacao":"Cargo",
+                    "data_inicio":           "Início",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Sem participação ativa em comissões no momento.")
+
+        past = comissoes_df.filter(pl.col("is_current") == False)
+        if not past.is_empty():
+            with st.expander(f"Histórico de comissões ({len(past)} registros)"):
+                st.dataframe(
+                    past.select([
+                        "sigla_comissao", "nome_comissao", "descricao_participacao",
+                        "data_inicio", "data_fim",
+                    ]).rename({
+                        "sigla_comissao":        "Sigla",
+                        "nome_comissao":         "Comissão",
+                        "descricao_participacao":"Cargo",
+                        "data_inicio":           "Início",
+                        "data_fim":              "Fim",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+# ── Tab 4: Despesas ────────────────────────────────────────────────────────
+with tab_despesas:
+    if ceaps_df.is_empty():
+        st.info("Nenhuma despesa CEAPS registrada para este senador.")
+    else:
+        # Spending by year
+        by_year = (
+            ceaps_df.group_by("ano")
+            .agg(pl.col("total_reembolsado").sum().alias("total"))
+            .sort("ano")
+        )
+        fig_year = px.bar(
+            by_year.to_pandas(),
+            x="ano",
+            y="total",
+            title="Total reembolsado por ano (R$)",
+            labels={"ano": "Ano", "total": "Total reembolsado (R$)"},
+            color="total",
+            color_continuous_scale="Reds",
+        )
+        fig_year.update_layout(
+            coloraxis_showscale=False, height=300,
+            margin=dict(t=40, b=10),
+        )
+        st.plotly_chart(fig_year, use_container_width=True)
+
+        # Spending by category for selected year
+        anos_disponíveis = sorted(ceaps_df["ano"].unique().to_list(), reverse=True)
+        sel_ano = st.selectbox("Ano", anos_disponíveis, key="ceaps_ano")
+
+        by_cat = (
+            ceaps_df.filter(pl.col("ano") == sel_ano)
+            .group_by("tipo_despesa")
+            .agg(pl.col("total_reembolsado").sum().alias("total"))
+            .sort("total", descending=True)
+        )
+        fig_cat = px.bar(
+            by_cat.to_pandas(),
+            x="total",
+            y="tipo_despesa",
+            orientation="h",
+            title=f"Despesas por categoria — {sel_ano}",
+            labels={"total": "Total reembolsado (R$)", "tipo_despesa": ""},
+            color="total",
+            color_continuous_scale="Oranges",
+        )
+        fig_cat.update_layout(
+            coloraxis_showscale=False, height=350,
+            margin=dict(t=40, b=10),
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+        # Raw expense table
+        with st.expander("Tabela detalhada"):
+            detail = ceaps_df.rename({
+                "ano": "Ano", "mes": "Mês",
+                "tipo_despesa": "Categoria",
+                "qtd_recibos": "Recibos",
+                "total_reembolsado": "Total (R$)",
+            })
+            st.dataframe(detail, use_container_width=True, hide_index=True)
+
+# ── Tab 5: Liderança ───────────────────────────────────────────────────────
+with tab_lideranca:
+    lider_df = get_senator_liderancas(senator_id)
+
+    if lider_df.is_empty():
+        st.info("Nenhuma liderança partidária ou de governo registrada para este senador.")
+    else:
+        st.dataframe(
+            lider_df.rename({
+                "descricao_tipo_unidade":  "Tipo de unidade",
+                "sigla_tipo_lideranca":    "Sigla",
+                "descricao_tipo_lideranca":"Cargo",
+                "sigla_partido":           "Partido",
+                "nome_partido":            "Nome do partido",
+                "data_designacao":         "Designação",
+                "casa":                    "Casa",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 st.divider()
 st.caption("Fonte: API de Dados Abertos do Senado Federal — legis.senado.leg.br/dadosabertos")
