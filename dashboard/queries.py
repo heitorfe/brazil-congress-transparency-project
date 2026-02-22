@@ -329,6 +329,53 @@ def get_senator_liderancas(senador_id: str) -> pl.DataFrame:
 
 # ── Housing allowance ──────────────────────────────────────────────────────
 
+def get_ceaps_top_categories(n: int = 12) -> pl.DataFrame:
+    """Top N expense categories summed across all years — no year filter needed."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                tipo_despesa,
+                SUM(total_reembolsado) AS total_gasto,
+                SUM(qtd_recibos)       AS num_recibos
+            FROM main_marts.agg_senador_despesas
+            GROUP BY tipo_despesa
+            ORDER BY total_gasto DESC
+            LIMIT ?
+        """, [n]).pl()
+
+
+def get_ceaps_categories_by_year() -> pl.DataFrame:
+    """All categories × years for trend/stacked charts."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                tipo_despesa,
+                SUM(total_reembolsado) AS total_gasto
+            FROM main_marts.agg_senador_despesas
+            GROUP BY ano, tipo_despesa
+            ORDER BY ano, total_gasto DESC
+        """).pl()
+
+
+def get_ceaps_all_senators_totals() -> pl.DataFrame:
+    """Total CEAPS spending per senator (all years) — used for ranking."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                a.senador_id,
+                COALESCE(s.nome_parlamentar, a.nome_senador) AS nome_parlamentar,
+                s.partido_sigla,
+                s.estado_sigla,
+                SUM(a.total_reembolsado) AS total_gasto,
+                SUM(a.qtd_recibos)       AS num_recibos
+            FROM main_marts.agg_senador_despesas a
+            LEFT JOIN main_marts.dim_senador s ON a.senador_id = s.senador_id
+            GROUP BY a.senador_id, nome_parlamentar, a.nome_senador, s.partido_sigla, s.estado_sigla
+            ORDER BY total_gasto DESC
+        """).pl()
+
+
 def get_senator_housing(senador_id: str) -> pl.DataFrame:
     """Housing allowance record for a senator."""
     with _con() as con:

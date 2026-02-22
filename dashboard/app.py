@@ -30,14 +30,16 @@ total = len(df)
 pct_feminino = round(100 * len(df.filter(pl.col("sexo") == "Feminino")) / total, 1) if total else 0
 num_partidos = df["partido_sigla"].n_unique()
 
-hoje = pl.Series(["2026-02-21"]).str.to_date().to_list()[0]
 from datetime import date
 hoje = date.today()
 
-idades = df.with_columns(
-    ((pl.lit(hoje.toordinal()) - pl.col("data_nascimento").cast(pl.Date).dt.ordinal()) / 365.25)
-    .alias("idade")
-)["idade"].drop_nulls()
+idades = (
+    df.filter(pl.col("data_nascimento").is_not_null())
+    .with_columns(
+        ((pl.lit(hoje) - pl.col("data_nascimento").cast(pl.Date)).dt.total_days() / 365.25)
+        .alias("idade")
+    )["idade"]
+)
 idade_media = round(idades.mean(), 1) if len(idades) > 0 else 0
 
 k1, k2, k3, k4 = st.columns(4)

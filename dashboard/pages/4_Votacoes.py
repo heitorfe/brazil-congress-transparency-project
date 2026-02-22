@@ -180,4 +180,40 @@ display = filtered.select([
 st.dataframe(display, use_container_width=True, hide_index=True)
 
 st.divider()
+
+# ── Glossário ──────────────────────────────────────────────────────────────
+with st.expander("📋 Glossário — Tipos de sessão e tipos de matéria"):
+    g1, g2 = st.columns(2)
+
+    with g1:
+        st.markdown("""
+**Tipos de sessão (`Tipo de sessão`)**
+
+| Sigla | Descrição |
+|-------|-----------|
+| **D** / **Del** | **Sessão Deliberativa** — a pauta inclui votações com resultado vinculante. É o tipo onde a maioria das leis é aprovada ou rejeitada. |
+| **O** / **Ord** | **Sessão Ordinária** — sessão regular prevista no calendário legislativo, geralmente com pauta deliberativa. |
+| **N** / **NDel** | **Sessão Não Deliberativa** — sem votações; destina-se a discursos, homenagens e comunicações avulsas. |
+| **E** / **Ext** | **Sessão Extraordinária** — convocada fora do calendário ordinário, geralmente em períodos de recesso ou para matérias urgentes. |
+| **S** / **Sol** | **Sessão Solene** — caráter comemorativo ou protocolar; homenagens, recepção de autoridades, outorga de títulos. |
+| **C** / **Conj** | **Sessão Conjunta / Congresso** — realizada com deputados e senadores reunidos; delibera sobre orçamento, vetos presidenciais e EMC. |
+| **Esp** | **Sessão Especial** — para finalidade específica determinada pela Mesa Diretora. |
+""")
+
+    with g2:
+        st.markdown("""
+**Tipos de matéria (`Tipo`)**
+
+| Sigla | Descrição |
+|-------|-----------|
+| **PL** | **Projeto de Lei** — proposta de nova lei ou alteração de lei ordinária. Aprovado por maioria simples. |
+| **PEC** | **Proposta de Emenda à Constituição** — altera a Constituição Federal; exige aprovação em dois turnos com 3/5 dos votos (49 senadores). |
+| **PLP** | **Projeto de Lei Complementar** — lei complementar à Constituição; exige maioria absoluta (41 senadores). |
+| **MPV** | **Medida Provisória** — ato do Poder Executivo com força de lei imediata; precisa ser apreciada pelo Congresso em 120 dias. |
+| **RES** | **Resolução** — norma interna do Senado; não precisa de sanção presidencial. |
+| **DEC** | **Decreto Legislativo** — ato do Congresso sem sanção presidencial; usado para ratificar tratados internacionais e sustar decretos executivos. |
+| **MSF** | **Mensagem do Senado Federal** — comunicação oficial entre poderes (ex.: indicação de autoridades). |
+| **SCD** | **Substitutivo da Câmara dos Deputados** — texto aprovado pela Câmara em substituição ao projeto original do Senado. |
+""")
+
 st.caption("Fonte: API de Dados Abertos do Senado Federal — legis.senado.leg.br/dadosabertos")

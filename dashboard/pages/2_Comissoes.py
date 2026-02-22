@@ -159,4 +159,43 @@ if selected_rows:
                 st.switch_page("pages/1_Perfil_do_Senador.py")
 
 st.divider()
+
+# ── Glossário ──────────────────────────────────────────────────────────────
+with st.expander("📋 Glossário — Tipos de comissão e casas legislativas"):
+    col_g1, col_g2 = st.columns(2)
+
+    with col_g1:
+        st.markdown("""
+**Tipos de comissão**
+
+| Tipo | Descrição |
+|------|-----------|
+| **Permanente** | Comissões temáticas fixas que existem ao longo de toda a legislatura. Analisam propostas legislativas, fiscalizam o Executivo e realizam audiências públicas. Ex.: CCJ (Constituição e Justiça), CAS (Assuntos Sociais), CAE (Assuntos Econômicos). |
+| **CPI** | Comissão Parlamentar de Inquérito. Criada para investigar fatos de interesse público por prazo determinado. Tem poderes similares aos de autoridades judiciais (pode requisitar documentos, convocar testemunhas). |
+| **Temporária** | Criada para finalidade específica e com prazo definido de existência, geralmente para análise de propostas complexas ou situações excepcionais. |
+| **Mista** | Comissão com participação de senadores e deputados. Comum para análise de Medidas Provisórias (MPV) e temas que envolvem o Congresso Nacional como um todo. |
+| **Órgão / Comitê** | Órgão interno de gestão ou suporte administrativo do Senado (ex.: Conselho de Ética, Corregedoria). |
+""")
+
+    with col_g2:
+        st.markdown("""
+**Casas legislativas**
+
+| Sigla | Descrição |
+|-------|-----------|
+| **SF** | Senado Federal — composto por 81 senadores (3 por estado + DF), eleitos por 8 anos em mandatos escalonados. |
+| **CN** | Congresso Nacional — sessão conjunta de senadores e deputados. Delibera sobre matérias que afetam os dois poderes (ex.: orçamento, Medidas Provisórias, Emendas Constitucionais em segunda votação). |
+| **CD** | Câmara dos Deputados — integra comissões mistas em conjunto com o Senado. |
+
+**Cargos nas comissões**
+
+| Cargo | Descrição |
+|-------|-----------|
+| **Titular** | Membro efetivo com direito a voto. |
+| **Suplente** | Substitui o titular em caso de ausência; vota apenas quando assume a titularidade. |
+| **Presidente** | Preside as reuniões e tem voto de qualidade (desempate). |
+| **Vice-Presidente** | Substitui o presidente em suas ausências. |
+| **Relator** | Analisa e emite parecer sobre propostas específicas. |
+""")
+
 st.caption("Fonte: API de Dados Abertos do Senado Federal — legis.senado.leg.br/dadosabertos")

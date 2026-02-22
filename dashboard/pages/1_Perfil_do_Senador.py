@@ -286,44 +286,52 @@ with tab_despesas:
             .sort("ano")
         )
         fig_year = px.bar(
-            by_year.to_pandas(),
+            by_year.with_columns(pl.col("ano").cast(pl.Utf8)).to_pandas(),
             x="ano",
             y="total",
-            title="Total reembolsado por ano (R$)",
-            labels={"ano": "Ano", "total": "Total reembolsado (R$)"},
-            color="total",
-            color_continuous_scale="Reds",
+            title="Total reembolsado por ano",
+            labels={"ano": "Ano", "total": ""},
+            color_discrete_sequence=["#c0392b"],
+            text_auto=False,
+        )
+        fig_year.update_traces(
+            texttemplate="R$ %{y:,.0f}",
+            textposition="outside",
         )
         fig_year.update_layout(
-            coloraxis_showscale=False, height=300,
-            margin=dict(t=40, b=10),
+            height=300,
+            margin=dict(t=50, b=10),
+            yaxis=dict(
+                tickprefix="R$ ",
+                tickformat=",.0f",
+            ),
         )
         st.plotly_chart(fig_year, use_container_width=True)
 
-        # Spending by category for selected year
-        anos_disponíveis = sorted(ceaps_df["ano"].unique().to_list(), reverse=True)
-        sel_ano = st.selectbox("Ano", anos_disponíveis, key="ceaps_ano")
-
+        # Spending by category — all years summed (no year selection needed)
         by_cat = (
-            ceaps_df.filter(pl.col("ano") == sel_ano)
+            ceaps_df
             .group_by("tipo_despesa")
             .agg(pl.col("total_reembolsado").sum().alias("total"))
-            .sort("total", descending=True)
+            .sort("total", descending=False)
         )
         fig_cat = px.bar(
             by_cat.to_pandas(),
             x="total",
             y="tipo_despesa",
             orientation="h",
-            title=f"Despesas por categoria — {sel_ano}",
-            labels={"total": "Total reembolsado (R$)", "tipo_despesa": ""},
-            color="total",
-            color_continuous_scale="Oranges",
+            title="Despesas por categoria (todos os anos)",
+            labels={"total": "", "tipo_despesa": ""},
+            color_discrete_sequence=["#e67e22"],
+        )
+        fig_cat.update_traces(
+            texttemplate="R$ %{x:,.0f}",
+            textposition="outside",
         )
         fig_cat.update_layout(
-            coloraxis_showscale=False, height=350,
-            margin=dict(t=40, b=10),
-            yaxis=dict(autorange="reversed"),
+            height=max(250, len(by_cat) * 35),
+            margin=dict(t=50, b=10, r=160),
+            xaxis=dict(tickprefix="R$ ", tickformat=",.0f"),
         )
         st.plotly_chart(fig_cat, use_container_width=True)
 
