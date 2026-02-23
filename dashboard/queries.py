@@ -405,7 +405,7 @@ def get_pessoal_kpis() -> dict:
         latest = con.execute("""
             SELECT ano, mes, SUM(total_liquido) AS total_liquido, SUM(total_bruto) AS total_bruto
             FROM main_marts.agg_pessoal_mensal
-            WHERE (ano, mes) = (
+            WHERE (ano, mes) IN (
                 SELECT ano, mes FROM main_marts.agg_pessoal_mensal
                 ORDER BY ano DESC, mes DESC LIMIT 1
             )
@@ -415,7 +415,7 @@ def get_pessoal_kpis() -> dict:
         pensionistas_latest = con.execute("""
             SELECT COALESCE(SUM(remuneracao_liquida), 0)
             FROM main_marts.fct_remuneracao_pensionista
-            WHERE (ano, mes) = (
+            WHERE (ano, mes) IN (
                 SELECT ano, mes FROM main_marts.fct_remuneracao_pensionista
                 ORDER BY ano DESC, mes DESC LIMIT 1
             )
@@ -424,7 +424,7 @@ def get_pessoal_kpis() -> dict:
         horas_latest = con.execute("""
             SELECT COALESCE(SUM(valor_total), 0)
             FROM main_marts.fct_hora_extra
-            WHERE (ano_pagamento, mes_pagamento) = (
+            WHERE (ano_pagamento, mes_pagamento) IN (
                 SELECT ano_pagamento, mes_pagamento FROM main_marts.fct_hora_extra
                 ORDER BY ano_pagamento DESC, mes_pagamento DESC LIMIT 1
             )
@@ -639,3 +639,62 @@ def get_remuneracoes_meses_disponiveis(ano: int) -> list[int]:
             SELECT DISTINCT mes FROM main_marts.agg_pessoal_mensal WHERE ano = ? ORDER BY mes DESC
         """, [ano]).fetchall()
     return [r[0] for r in rows]
+
+
+def get_remuneracao_por_ano() -> pl.DataFrame:
+    """Annual payroll totals across all available years — used for the top-level overview chart."""
+    with _con() as con:
+        return con.execute("""
+            WITH mensal AS (
+                SELECT
+                    ano,
+                    mes,
+                    SUM(num_servidores) AS servidores_mes,
+                    SUM(total_liquido)  AS liquido_mes,
+                    SUM(total_bruto)    AS bruto_mes
+                FROM main_marts.agg_pessoal_mensal
+                GROUP BY ano, mes
+            )
+            SELECT
+                ano,
+                COUNT(*)                                 AS num_meses,
+                ROUND(AVG(servidores_mes))::INTEGER      AS avg_servidores,
+                SUM(liquido_mes)                         AS total_liquido,
+                SUM(bruto_mes)                           AS total_bruto
+            FROM mensal
+            GROUP BY ano
+            ORDER BY ano
+        """).pl()
+
+
+def get_remuneracao_mensal_por_ano(ano: int) -> pl.DataFrame:
+    """Monthly payroll totals for a given year — used for the monthly breakdown chart."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                mes,
+                SUM(num_servidores)           AS num_servidores,
+                SUM(total_liquido)            AS total_liquido,
+                SUM(total_bruto)              AS total_bruto,
+                SUM(total_horas_extras_valor) AS total_horas_extras
+            FROM main_marts.agg_pessoal_mensal
+            WHERE ano = ?
+            GROUP BY mes
+            ORDER BY mes
+        """, [ano]).pl()
+
+
+def get_vinculo_por_ano(ano: int) -> pl.DataFrame:
+    """Staff payroll breakdown by employment bond type for an entire year."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                vinculo,
+                SUM(num_servidores) / COUNT(DISTINCT mes)  AS avg_servidores,
+                SUM(total_liquido)                         AS total_liquido,
+                SUM(total_bruto)                           AS total_bruto
+            FROM main_marts.agg_pessoal_mensal
+            WHERE ano = ?
+            GROUP BY vinculo
+            ORDER BY total_bruto DESC
+        """, [ano]).pl()
