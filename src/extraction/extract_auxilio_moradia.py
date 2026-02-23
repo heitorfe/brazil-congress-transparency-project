@@ -11,32 +11,17 @@ Strategy:
   - Output: data/raw/auxilio_moradia.parquet
 
 Key quirks:
-  - No senator ID in the response — only `nomeParlamentar` (name) is available.
+  - No senator ID in the response — only ``nomeParlamentar`` (name) is available.
     Matching to dim_senador must be done by name in the dbt layer.
   - Boolean fields arrive as Python booleans from the JSON parser.
 """
 
-import sys
-from pathlib import Path
-
-import polars as pl
-
 from api_client import SenateApiClient
+from config import RAW_DIR
+from transforms.auxilio_moradia import flatten_auxilio_moradia_record
+from utils import configure_utf8, save_parquet, unwrap_list
 
-if sys.stdout.encoding != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-RAW_DIR = Path("data/raw")
-
-
-def _flatten_record(rec: dict) -> dict:
-    return {
-        "nome_parlamentar": rec.get("nomeParlamentar"),
-        "estado_eleito":    rec.get("estadoEleito"),
-        "partido_eleito":   rec.get("partidoEleito"),
-        "auxilio_moradia":  bool(rec.get("auxilioMoradia", False)),
-        "imovel_funcional": bool(rec.get("imovelFuncional", False)),
-    }
+configure_utf8()
 
 
 def extract_all() -> None:
@@ -47,20 +32,16 @@ def extract_all() -> None:
     with SenateApiClient() as client:
         data = client.get_adm("/api/v1/senadores/auxilio-moradia")
 
+    data = unwrap_list(data)
     if not data:
         print("empty — no data returned.")
         return
 
-    if isinstance(data, dict):
-        data = [data]
-
-    records = [_flatten_record(r) for r in data if r]
-
-    df = pl.DataFrame(records).unique(subset=["nome_parlamentar"])
+    records = [flatten_auxilio_moradia_record(r) for r in data if r]
 
     out = RAW_DIR / "auxilio_moradia.parquet"
-    df.write_parquet(out)
-    print(f"{len(df)} senators → {out}")
+    n = save_parquet(records, out, unique_subset=["nome_parlamentar"])
+    print(f"{n} senators → {out}")
 
 
 if __name__ == "__main__":

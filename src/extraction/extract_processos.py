@@ -7,54 +7,31 @@ Endpoint used:
   -- Response is a JSON array of proposal objects.
 
 Strategy:
-  - Iterates over: siglas (PL, PEC, PLP, MPV) × years (2019 → current year).
-  - Deduplicates on `id_processo` across all sigla/year combinations.
+  - Iterates over: siglas (PL, PEC, PLP, MPV) × years (DEFAULT_START_YEAR → current year).
+  - Deduplicates on ``id_processo`` across all sigla/year combinations.
   - Output: data/raw/processos.parquet
 
 Key quirks:
-  - The `id` field in the API response maps to `id_processo` in our schema.
-  - `tramitando` arrives as "Sim" / "Não" string, not a boolean.
+  - The ``id`` field in the API response maps to ``id_processo`` in our schema.
+  - ``tramitando`` arrives as "Sim" / "Não" string, not a boolean.
     Conversion happens in the dbt staging layer (tramitando = 'Sim').
-  - `dataUltimaAtualizacao` can be absent in some records.
-  - Some sigla/year combinations return an empty array — guard with `if not data`.
+  - ``dataUltimaAtualizacao`` can be absent in some records.
+  - Some sigla/year combinations return an empty array — guard with ``if not data``.
 """
 
-import sys
 from datetime import date
-from pathlib import Path
-
-import polars as pl
 
 from api_client import SenateApiClient
+from config import RAW_DIR, DEFAULT_START_YEAR
+from transforms.processos import flatten_processo_record
+from utils import configure_utf8, save_parquet, unwrap_list
 
-if sys.stdout.encoding != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+configure_utf8()
 
-RAW_DIR = Path("data/raw")
-START_YEAR = 2019
 SIGLAS = ["PL", "PEC", "PLP", "MPV"]
 
 
-def _flatten_record(rec: dict) -> dict:
-    return {
-        "id_processo":            rec.get("id"),
-        "codigo_materia":         rec.get("codigoMateria"),
-        "identificacao":          rec.get("identificacao"),
-        "sigla_materia":          rec.get("identificacao", "").split(" ")[0] if rec.get("identificacao") else None,
-        "numero_materia":         (rec.get("identificacao") or "").split(" ")[1].split("/")[0] if rec.get("identificacao") and " " in rec.get("identificacao", "") else None,
-        "ano_materia":            int(rec.get("identificacao", "").split("/")[-1]) if rec.get("identificacao") and "/" in rec.get("identificacao", "") else None,
-        "ementa":                 rec.get("ementa"),
-        "tipo_documento":         rec.get("tipoDocumento"),
-        "data_apresentacao":      rec.get("dataApresentacao"),
-        "autoria":                rec.get("autoria"),
-        "casa_identificadora":    rec.get("casaIdentificadora"),
-        "tramitando":             rec.get("tramitando"),
-        "data_ultima_atualizacao": rec.get("dataUltimaAtualizacao"),
-        "url_documento":          rec.get("urlDocumento"),
-    }
-
-
-def extract_all(start_year: int = START_YEAR, end_year: int | None = None) -> None:
+def extract_all(start_year: int = DEFAULT_START_YEAR, end_year: int | None = None) -> None:
     if end_year is None:
         end_year = date.today().year
 
@@ -81,9 +58,8 @@ def extract_all(start_year: int = START_YEAR, end_year: int | None = None) -> No
                     if isinstance(data, dict):
                         # Some responses wrap in a container
                         data = data.get("processos") or data.get("Processo") or [data]
-                    if not isinstance(data, list):
-                        data = [data]
-                    records = [_flatten_record(r) for r in data if r and r.get("id")]
+                    data = unwrap_list(data)
+                    records = [flatten_processo_record(r) for r in data if r and r.get("id")]
                     all_records.extend(records)
                     print(f"  {label}  {len(records)} proposals")
                 except Exception as e:
@@ -93,15 +69,14 @@ def extract_all(start_year: int = START_YEAR, end_year: int | None = None) -> No
         print("No proposal data fetched. Exiting.")
         return
 
-    df = (
-        pl.DataFrame(all_records)
-        .unique(subset=["id_processo"])
-        .sort(["ano_materia", "sigla_materia", "id_processo"])
-    )
-
     out = RAW_DIR / "processos.parquet"
-    df.write_parquet(out)
-    print(f"\nSaved {len(df)} legislative proposals → {out}")
+    n = save_parquet(
+        all_records,
+        out,
+        unique_subset=["id_processo"],
+        sort_by=["ano_materia", "sigla_materia", "id_processo"],
+    )
+    print(f"\nSaved {n} legislative proposals → {out}")
 
 
 if __name__ == "__main__":
@@ -111,8 +86,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--start-year",
         type=int,
-        default=START_YEAR,
-        help=f"First year to fetch (default: {START_YEAR})",
+        default=DEFAULT_START_YEAR,
+        help=f"First year to fetch (default: {DEFAULT_START_YEAR})",
     )
     parser.add_argument(
         "--end-year",

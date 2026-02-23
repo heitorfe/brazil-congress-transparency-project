@@ -7,7 +7,7 @@ Endpoint used:
      nested inside each session object.
 
 Strategy:
-  - Queries month-by-month from START_DATE to today (or a supplied end date).
+  - Queries month-by-month from DEFAULT_START_DATE to today (or a supplied end date).
   - Each API response is a JSON array; votes are embedded in each session.
   - Session-level data → data/raw/votacoes.parquet
   - Senator-level vote data → data/raw/votos.parquet  (exploded from nested votos[])
@@ -15,109 +15,36 @@ Strategy:
 See docs/raw_data_schemas.md for the full field-by-field schema documentation.
 """
 
-import sys
-import time
-from datetime import date, timedelta
-from dateutil.relativedelta import relativedelta
-import httpx
-import polars as pl
-from pathlib import Path
+from datetime import date
 
-if sys.stdout.encoding != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+from api_client import SenateApiClient
+from config import RAW_DIR, DEFAULT_START_DATE
+from transforms.votacoes import flatten_votacao, flatten_voto
+from utils import configure_utf8, save_parquet, month_date_windows
 
-BASE_URL = "https://legis.senado.leg.br/dadosabertos"
-RAW_DIR = Path("data/raw")
-
-# Earliest date with reliable data in the new endpoint
-START_DATE = date(2019, 2, 1)
-
-
-def _get(client: httpx.Client, url: str, params: dict) -> list[dict] | dict:
-    resp = client.get(url, params=params, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-    # The endpoint returns a plain JSON array for date-range queries
-    if isinstance(data, list):
-        return data
-    # v=1 wraps the result; handle defensively
-    if isinstance(data, dict) and "votacoes" in data:
-        return data["votacoes"]
-    return data
-
-
-def _month_windows(start: date, end: date) -> list[tuple[date, date]]:
-    """Yield (window_start, window_end) tuples, one per calendar month."""
-    windows = []
-    cursor = start.replace(day=1)
-    while cursor <= end:
-        next_month = cursor + relativedelta(months=1)
-        window_end = min(next_month - timedelta(days=1), end)
-        windows.append((cursor, window_end))
-        cursor = next_month
-    return windows
-
-
-def _flatten_votacao(v: dict) -> dict:
-    """Extract session-level fields, discarding the nested votos list."""
-    inf = v.get("informeLegislativo") or {}
-    return {
-        "codigo_sessao_votacao":    v.get("codigoSessaoVotacao"),
-        "codigo_votacao_sve":       v.get("codigoVotacaoSve"),
-        "codigo_sessao":            v.get("codigoSessao"),
-        "codigo_sessao_legislativa": v.get("codigoSessaoLegislativa"),
-        "sigla_tipo_sessao":        v.get("siglaTipoSessao"),
-        "numero_sessao":            v.get("numeroSessao"),
-        "data_sessao":              v.get("dataSessao"),
-        "id_processo":              v.get("idProcesso"),
-        "codigo_materia":           v.get("codigoMateria"),
-        "identificacao":            v.get("identificacao"),
-        "sigla_materia":            v.get("sigla"),
-        "numero_materia":           str(v.get("numero") or ""),
-        "ano_materia":              v.get("ano"),
-        "data_apresentacao":        v.get("dataApresentacao"),
-        "ementa":                   v.get("ementa"),
-        "sequencial_sessao":        v.get("sequencialSessao"),
-        "votacao_secreta":          v.get("votacaoSecreta"),
-        "descricao_votacao":        v.get("descricaoVotacao"),
-        "resultado_votacao":        v.get("resultadoVotacao"),
-        "total_votos_sim":          v.get("totalVotosSim"),
-        "total_votos_nao":          v.get("totalVotosNao"),
-        "total_votos_abstencao":    v.get("totalVotosAbstencao"),
-        "informe_texto":            inf.get("texto"),
-    }
-
-
-def _flatten_voto(codigo_sessao_votacao: int, voto: dict) -> dict:
-    """Extract one senator's vote from the nested votos array."""
-    return {
-        "codigo_sessao_votacao": codigo_sessao_votacao,
-        "codigo_parlamentar":    voto.get("codigoParlamentar"),
-        "nome_parlamentar":      voto.get("nomeParlamentar"),
-        "sexo_parlamentar":      voto.get("sexoParlamentar"),
-        "sigla_partido":         voto.get("siglaPartidoParlamentar"),
-        "sigla_uf":              voto.get("siglaUFParlamentar"),
-        "sigla_voto":            voto.get("siglaVotoParlamentar"),
-        "descricao_voto":        voto.get("descricaoVotoParlamentar"),
-    }
+configure_utf8()
 
 
 def fetch_window(
-    client: httpx.Client, window_start: date, window_end: date
+    client: SenateApiClient, window_start: date, window_end: date
 ) -> tuple[list[dict], list[dict]]:
     """Fetch all voting sessions for one date window; return (votacoes, votos)."""
-    sessions = _get(
-        client,
-        f"{BASE_URL}/votacao",
+    raw = client.get_legis(
+        "/votacao",
         params={
             "dataInicio": window_start.isoformat(),
-            "dataFim": window_end.isoformat(),
+            "dataFim":    window_end.isoformat(),
         },
+        suffix="",
     )
 
-    if not isinstance(sessions, list):
-        # Single-session edge case from v=1 style response
-        sessions = [sessions]
+    # Response is usually a plain JSON array; handle dict wrapper defensively
+    if isinstance(raw, list):
+        sessions = raw
+    elif isinstance(raw, dict) and "votacoes" in raw:
+        sessions = raw["votacoes"]
+    else:
+        sessions = [raw] if raw else []
 
     votacoes = []
     votos = []
@@ -127,26 +54,26 @@ def fetch_window(
         codigo = session.get("codigoSessaoVotacao")
         if codigo is None:
             continue
-        votacoes.append(_flatten_votacao(session))
+        votacoes.append(flatten_votacao(session))
         for voto in session.get("votos") or []:
-            votos.append(_flatten_voto(codigo, voto))
+            votos.append(flatten_voto(codigo, voto))
 
     return votacoes, votos
 
 
-def extract_all(start: date = START_DATE, end: date | None = None):
+def extract_all(start: date = DEFAULT_START_DATE, end: date | None = None) -> None:
     if end is None:
         end = date.today()
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-    windows = _month_windows(start, end)
+    windows = month_date_windows(start, end)
     print(f"Fetching {len(windows)} monthly windows from {start} to {end}...")
 
     all_votacoes: list[dict] = []
     all_votos: list[dict] = []
 
-    with httpx.Client() as client:
+    with SenateApiClient() as client:
         for i, (w_start, w_end) in enumerate(windows, 1):
             label = f"[{i:>3}/{len(windows)}] {w_start} → {w_end}"
             try:
@@ -156,22 +83,24 @@ def extract_all(start: date = START_DATE, end: date | None = None):
                 print(f"  {label}  sessions={len(votacoes):>4}  votes={len(votos):>5}")
             except Exception as e:
                 print(f"  {label}  ERROR: {e}")
-            time.sleep(0.3)
+        # SenateApiClient handles rate limiting — no manual time.sleep needed
 
     if not all_votacoes:
         print("No voting data fetched. Exiting.")
         return
 
-    df_votacoes = pl.DataFrame(all_votacoes).unique(subset=["codigo_sessao_votacao"])
-    df_votos = pl.DataFrame(all_votos).unique(
-        subset=["codigo_sessao_votacao", "codigo_parlamentar"]
+    out_votacoes = RAW_DIR / "votacoes.parquet"
+    out_votos    = RAW_DIR / "votos.parquet"
+
+    n_v = save_parquet(all_votacoes, out_votacoes, unique_subset=["codigo_sessao_votacao"])
+    n_vt = save_parquet(
+        all_votos,
+        out_votos,
+        unique_subset=["codigo_sessao_votacao", "codigo_parlamentar"],
     )
 
-    df_votacoes.write_parquet(RAW_DIR / "votacoes.parquet")
-    df_votos.write_parquet(RAW_DIR / "votos.parquet")
-
-    print(f"\nSaved {len(df_votacoes)} voting sessions -> data/raw/votacoes.parquet")
-    print(f"Saved {len(df_votos)} senator votes    -> data/raw/votos.parquet")
+    print(f"\nSaved {n_v} voting sessions → {out_votacoes}")
+    print(f"Saved {n_vt} senator votes   → {out_votos}")
 
 
 if __name__ == "__main__":
@@ -180,8 +109,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract Senate nominal votes")
     parser.add_argument(
         "--start",
-        default=START_DATE.isoformat(),
-        help=f"Start date YYYY-MM-DD (default: {START_DATE})",
+        default=DEFAULT_START_DATE.isoformat(),
+        help=f"Start date YYYY-MM-DD (default: {DEFAULT_START_DATE})",
     )
     parser.add_argument(
         "--end",
