@@ -41,6 +41,39 @@ models:
       - name: num_suplentes
         description: "Current Suplente members count"
 
+  - name: agg_emenda_por_autor
+    description: "Pre-aggregated parliamentary amendment payments per (author × year × tipo_emenda). Grain: 1 row per (nome_autor_emenda × ano_emenda × tipo_emenda). Only 'Pagamento' phase to avoid triple-counting."
+    columns:
+      - name: nome_autor_emenda
+        description: "Author name as registered in SIAFI (uppercase, no accents)"
+        data_tests:
+          - not_null
+
+      - name: ano_emenda
+        description: "Amendment year"
+        data_tests:
+          - not_null
+
+      - name: tipo_emenda
+        description: "Amendment type (Emenda Individual, Bancada, Comissão, Relator)"
+        data_tests:
+          - not_null
+
+      - name: senador_id
+        description: "Senator code (FK → dim_senador) — NULL for non-senators or former legislators"
+
+      - name: total_pago
+        description: "Sum of valor_pago across all payment documents for this author × year × type"
+
+      - name: num_emendas
+        description: "Distinct amendment codes in this group"
+
+      - name: num_favorecidos_distintos
+        description: "Distinct beneficiaries (CNPJ/CPF) across all documents"
+
+      - name: num_municipios_distintos
+        description: "Distinct municipalities where resources were applied"
+
   - name: agg_pessoal_mensal
     description: "Pre-aggregated staff payroll totals per (ano × mes × vinculo × lotacao_sigla) — used by Streamlit to avoid scanning 840k+ raw rows at render time"
     columns:

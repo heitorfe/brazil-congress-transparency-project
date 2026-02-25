@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: transparencia
+    description: "Raw Parquet files extracted from Portal da Transparência (CGU) — parliamentary amendments data"
+    tables:
+      - name: emendas_parlamentares
+        description: "Aggregated parliamentary amendments summary (all years, single file). Grain: 1 row per amendment × action × location."
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/emendas_parlamentares.parquet"
+
+      - name: emendas_documentos
+        description: "Parliamentary amendments by SIAFI expense document (2014–current). Grain: 1 row per amendment × document × expense phase."
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/emendas_documentos.parquet"
+
+      - name: apoiamento_emendas
+        description: "Co-sponsor (apoiamento) records for parliamentary amendments (2020–2025). Grain: 1 row per commitment × supporting legislator."
+        external:
+          location: "{{ env_var('DBT_RAW_DIR', '../data/raw') }}/apoiamento_emendas.parquet"

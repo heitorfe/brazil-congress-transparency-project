@@ -23,6 +23,8 @@ models:
     staging:
       +schema: staging
       +materialized: view
+      transparencia:
+        +tags: ['transparencia']
     marts:
       +schema: marts
       +materialized: table

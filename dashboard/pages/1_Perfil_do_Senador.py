@@ -11,6 +11,11 @@ from queries import (
     get_senator_ceaps,
     get_senator_liderancas,
     get_senator_housing,
+    get_senator_emendas_kpis,
+    get_senator_emendas_por_ano,
+    get_senator_emendas_favorecidos,
+    get_senator_emendas_municipios,
+    get_senator_apoiamentos,
 )
 
 st.set_page_config(
@@ -148,12 +153,13 @@ sc5.metric(
 st.divider()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────
-tab_perfil, tab_votos, tab_comissoes, tab_despesas, tab_lideranca = st.tabs([
+tab_perfil, tab_votos, tab_comissoes, tab_despesas, tab_lideranca, tab_emendas = st.tabs([
     "👤 Perfil",
     "🗳️ Votações",
     "🏛️ Comissões",
     "💰 Despesas (CEAPS)",
     "⭐ Liderança",
+    "📋 Emendas",
 ])
 
 # ── Tab 1: Perfil ──────────────────────────────────────────────────────────
@@ -365,6 +371,142 @@ with tab_lideranca:
             use_container_width=True,
             hide_index=True,
         )
+
+# ── Tab 6: Emendas ────────────────────────────────────────────────────────
+with tab_emendas:
+    emendas_kpis = get_senator_emendas_kpis(senator_id)
+
+    if emendas_kpis["num_emendas"] == 0:
+        st.info(
+            "Nenhuma emenda parlamentar registrada para este senador. "
+            "Isso pode ocorrer porque o nome do senador não pôde ser vinculado "
+            "aos dados do Portal da Transparência, ou porque o senador não possui "
+            "emendas individuais no período coberto (2014–presente)."
+        )
+    else:
+        # KPI cards
+        e1, e2, e3, e4 = st.columns(4)
+        e1.metric(
+            "Emendas",
+            f"{emendas_kpis['num_emendas']:,}".replace(",", "."),
+            help="Número de emendas distintas com pagamento registrado",
+        )
+        e2.metric(
+            "Total pago",
+            f"R$ {float(emendas_kpis['total_pago']) / 1e6:,.1f}M".replace(",", "X").replace(".", ",").replace("X", "."),
+            help="Valor efetivamente transferido ao beneficiário (fase Pagamento)",
+        )
+        e3.metric(
+            "Municípios beneficiados",
+            f"{emendas_kpis['municipios']:,}".replace(",", "."),
+            help="Municípios distintos que receberam recursos",
+        )
+        e4.metric(
+            "Período",
+            f"{emendas_kpis['ano_min']} – {emendas_kpis['ano_max']}"
+            if emendas_kpis["ano_min"] else "—",
+        )
+
+        st.divider()
+
+        col_esq, col_dir = st.columns(2)
+
+        # Annual trend
+        with col_esq:
+            anual_df = get_senator_emendas_por_ano(senator_id)
+            if not anual_df.is_empty():
+                anual_pd = anual_df.to_pandas()
+                anual_pd["ano_str"] = anual_pd["ano_emenda"].astype(str)
+                fig_em_ano = px.bar(
+                    anual_pd,
+                    x="ano_str",
+                    y="total_pago",
+                    title="Total pago por ano de emenda",
+                    labels={"ano_str": "Ano", "total_pago": "Total pago (R$)"},
+                    color_discrete_sequence=["#2c7bb6"],
+                    text="total_pago",
+                )
+                fig_em_ano.update_traces(
+                    texttemplate="R$ %{y:,.0f}",
+                    textposition="outside",
+                )
+                fig_em_ano.update_layout(
+                    yaxis_tickformat=",.0f",
+                    height=300,
+                    margin=dict(t=40, b=10),
+                )
+                st.plotly_chart(fig_em_ano, use_container_width=True)
+
+        # Top beneficiaries
+        with col_dir:
+            fav_df = get_senator_emendas_favorecidos(senator_id, n=12)
+            if not fav_df.is_empty():
+                fig_fav = px.bar(
+                    fav_df.to_pandas().sort_values("total_pago"),
+                    x="total_pago",
+                    y="favorecido",
+                    orientation="h",
+                    title="Maiores beneficiários (favorecidos)",
+                    labels={"total_pago": "Total pago (R$)", "favorecido": ""},
+                    color_discrete_sequence=["#e07b00"],
+                    text="total_pago",
+                    custom_data=["municipio_favorecido", "uf_favorecido", "tipo_favorecido"],
+                )
+                fig_fav.update_traces(
+                    texttemplate="R$ %{x:,.0f}",
+                    textposition="outside",
+                    hovertemplate=(
+                        "<b>%{y}</b><br>"
+                        "Município: %{customdata[0]} / %{customdata[1]}<br>"
+                        "Tipo: %{customdata[2]}<br>"
+                        "Total pago: R$ %{x:,.0f}<extra></extra>"
+                    ),
+                )
+                fig_fav.update_layout(
+                    xaxis_tickformat=",.0f",
+                    yaxis=dict(categoryorder="total ascending"),
+                    height=300,
+                    margin=dict(t=40, b=10, r=120),
+                )
+                st.plotly_chart(fig_fav, use_container_width=True)
+
+        # Municipality table
+        mun_df = get_senator_emendas_municipios(senator_id)
+        if not mun_df.is_empty():
+            with st.expander(f"🗺️ Municípios beneficiados ({len(mun_df)} municípios)"):
+                mun_top = mun_df.head(50).select([
+                    pl.col("municipio_recurso").alias("Município"),
+                    pl.col("uf_recurso").alias("UF"),
+                    pl.col("num_emendas").alias("Emendas"),
+                    pl.col("total_pago").map_elements(
+                        lambda v: f"R$ {v:,.0f}".replace(",", "."),
+                        return_dtype=pl.Utf8,
+                    ).alias("Total pago"),
+                ])
+                st.dataframe(mun_top, use_container_width=True, hide_index=True)
+
+        # Co-sponsorships
+        apoio_df = get_senator_apoiamentos(senator_id)
+        if not apoio_df.is_empty():
+            with st.expander(f"🤝 Apoiamentos a emendas de outros parlamentares ({len(apoio_df)} registros)"):
+                apoio_display = apoio_df.select([
+                    pl.col("ano_emenda").alias("Ano"),
+                    pl.col("nome_autor_emenda").alias("Autor da emenda"),
+                    pl.col("tipo_emenda").alias("Tipo"),
+                    pl.col("favorecido").alias("Favorecido"),
+                    pl.col("uf_favorecido").alias("UF"),
+                    pl.col("orgao").alias("Órgão"),
+                    pl.col("valor_pago").map_elements(
+                        lambda v: f"R$ {v:,.0f}".replace(",", ".") if v else "—",
+                        return_dtype=pl.Utf8,
+                    ).alias("Valor pago"),
+                ]).head(200)
+                st.dataframe(apoio_display, use_container_width=True, hide_index=True)
+
+    st.caption(
+        "Fonte: Portal da Transparência (CGU) — "
+        "emendas-parlamentares-documentos + apoiamento-emendas-parlamentares"
+    )
 
 st.divider()
 st.caption("Fonte: API de Dados Abertos do Senado Federal — legis.senado.leg.br/dadosabertos")

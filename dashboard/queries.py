@@ -698,3 +698,184 @@ def get_vinculo_por_ano(ano: int) -> pl.DataFrame:
             GROUP BY vinculo
             ORDER BY total_bruto DESC
         """, [ano]).pl()
+
+
+# ── Emendas Parlamentares ────────────────────────────────────────────────────
+
+def get_emendas_kpis() -> dict:
+    """Top-level KPIs for the emendas dashboard page."""
+    with _con() as con:
+        row = con.execute("""
+            SELECT
+                sum(num_emendas)                    as total_emendas,
+                count(distinct nome_autor_emenda)   as total_autores,
+                min(ano_emenda)                     as ano_min,
+                max(ano_emenda)                     as ano_max,
+                sum(total_pago)                     as total_pago_geral,
+                sum(total_empenhado)                as total_empenhado_geral
+            FROM main_marts.agg_emenda_por_autor
+        """).fetchone()
+    return {
+        "total_emendas":       row[0] or 0,
+        "total_autores":       row[1] or 0,
+        "ano_min":             row[2] or 0,
+        "ano_max":             row[3] or 0,
+        "total_pago":          row[4] or 0.0,
+        "total_empenhado":     row[5] or 0.0,
+    }
+
+
+def get_emendas_por_ano() -> pl.DataFrame:
+    """Annual totals of emendas — empenhado vs pago, all authors."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano_emenda,
+                sum(total_empenhado)              as total_empenhado,
+                sum(total_pago)                   as total_pago,
+                count(distinct nome_autor_emenda) as num_autores,
+                sum(num_emendas)                  as num_emendas
+            FROM main_marts.agg_emenda_por_autor
+            GROUP BY ano_emenda
+            ORDER BY ano_emenda
+        """).pl()
+
+
+def get_top_autores_emendas(n: int = 20) -> pl.DataFrame:
+    """Top N authors by total paid across all years."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                nome_autor_emenda,
+                senador_id,
+                nome_parlamentar,
+                partido_sigla,
+                estado_sigla,
+                is_senador_atual,
+                sum(total_pago)               as total_pago,
+                sum(total_empenhado)          as total_empenhado,
+                sum(num_emendas)              as num_emendas,
+                sum(num_municipios_distintos) as municipios
+            FROM main_marts.agg_emenda_por_autor
+            GROUP BY nome_autor_emenda, senador_id, nome_parlamentar,
+                     partido_sigla, estado_sigla, is_senador_atual
+            ORDER BY total_pago DESC
+            LIMIT ?
+        """, [n]).pl()
+
+
+def get_senator_emendas_kpis(senador_id: str) -> dict:
+    """Lifetime emenda KPIs for a single senator.
+
+    Uses conditional aggregation to derive empenhado and pago from their
+    respective phases in a single scan (no fase_despesa filter to avoid
+    losing values that only appear in one phase).
+    """
+    with _con() as con:
+        row = con.execute("""
+            SELECT
+                count(distinct codigo_emenda)                                       as num_emendas,
+                sum(case when fase_despesa = 'Pagamento' then valor_pago end)       as total_pago,
+                sum(case when fase_despesa = 'Empenho'   then valor_empenhado end)  as total_empenhado,
+                min(ano_emenda)                                                     as ano_min,
+                max(ano_emenda)                                                     as ano_max,
+                count(distinct case when fase_despesa = 'Pagamento'
+                    then municipio_recurso end)                                     as municipios,
+                count(distinct case when fase_despesa = 'Pagamento'
+                    then codigo_favorecido end)                                     as favorecidos
+            FROM main_marts.fct_emenda_documento
+            WHERE senador_id = ?
+        """, [senador_id]).fetchone()
+    return {
+        "num_emendas":     row[0] or 0,
+        "total_pago":      row[1] or 0.0,
+        "total_empenhado": row[2] or 0.0,
+        "ano_min":         row[3],
+        "ano_max":         row[4],
+        "municipios":      row[5] or 0,
+        "favorecidos":     row[6] or 0,
+    }
+
+
+def get_senator_emendas_por_ano(senador_id: str) -> pl.DataFrame:
+    """Emenda payment totals by year for a senator."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano_emenda,
+                sum(valor_pago)               as total_pago,
+                sum(valor_empenhado)          as total_empenhado,
+                count(distinct codigo_emenda) as num_emendas
+            FROM main_marts.fct_emenda_documento
+            WHERE senador_id = ?
+              AND fase_despesa = 'Pagamento'
+            GROUP BY ano_emenda
+            ORDER BY ano_emenda
+        """, [senador_id]).pl()
+
+
+def get_senator_emendas_favorecidos(senador_id: str, n: int = 15) -> pl.DataFrame:
+    """Top N beneficiaries of a senator's emendas by total paid."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                favorecido,
+                codigo_favorecido,
+                tipo_favorecido,
+                municipio_favorecido,
+                uf_favorecido,
+                sum(valor_pago)  as total_pago,
+                count(*)         as num_documentos
+            FROM main_marts.fct_emenda_documento
+            WHERE senador_id = ?
+              AND fase_despesa = 'Pagamento'
+              AND favorecido IS NOT NULL
+            GROUP BY favorecido, codigo_favorecido, tipo_favorecido,
+                     municipio_favorecido, uf_favorecido
+            ORDER BY total_pago DESC
+            LIMIT ?
+        """, [senador_id, n]).pl()
+
+
+def get_senator_emendas_municipios(senador_id: str) -> pl.DataFrame:
+    """Geographic distribution of a senator's emenda payments by municipality."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                uf_recurso,
+                municipio_recurso,
+                codigo_ibge_municipio,
+                sum(valor_pago)               as total_pago,
+                count(distinct codigo_emenda) as num_emendas
+            FROM main_marts.fct_emenda_documento
+            WHERE senador_id = ?
+              AND fase_despesa = 'Pagamento'
+              AND municipio_recurso IS NOT NULL
+              AND municipio_recurso NOT IN ('Sem informação', '-1')
+            GROUP BY uf_recurso, municipio_recurso, codigo_ibge_municipio
+            ORDER BY total_pago DESC
+        """, [senador_id]).pl()
+
+
+def get_senator_apoiamentos(senador_id: str) -> pl.DataFrame:
+    """Commitments co-sponsored (apoiados) by a senator."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                empenho,
+                codigo_emenda,
+                ano_emenda,
+                tipo_emenda,
+                nome_autor_emenda,
+                data_apoio,
+                favorecido,
+                uf_favorecido,
+                municipio_favorecido,
+                orgao,
+                acao,
+                valor_empenhado,
+                valor_pago
+            FROM main_marts.fct_apoiamento_emenda
+            WHERE senador_id_apoiador = ?
+            ORDER BY data_apoio DESC
+        """, [senador_id]).pl()

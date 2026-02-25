@@ -139,6 +139,31 @@ models:
       - name: tramitando
         description: "True when the proposal is currently in legislative process"
 
+  - name: dim_emenda
+    description: "One row per unique parliamentary amendment (codigo_emenda). Senator linkage via name normalization — only Emenda Individual types will match current senators."
+    columns:
+      - name: codigo_emenda
+        description: "12-character amendment identifier: YYYY (4) + SIAFI author code (4) + amendment number (4) — Primary Key"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: ano_emenda
+        description: "Year the amendment was created"
+        data_tests:
+          - not_null
+
+      - name: tipo_emenda
+        description: "Amendment type: Emenda Individual, Bancada, Comissão, or Relator"
+        data_tests:
+          - not_null
+
+      - name: nome_autor_emenda
+        description: "Author name from SIAFI (uppercase, accents removed)"
+
+      - name: senador_id
+        description: "Senator code (FK → dim_senador) — NULL for non-individual or non-senator authors"
+
   - name: dim_servidor
     description: "One row per Senate staff member — current snapshot from /api/v1/servidores/servidores"
     columns:

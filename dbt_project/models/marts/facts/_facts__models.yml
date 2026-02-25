@@ -170,3 +170,65 @@ models:
 
       - name: lotacao_sigla
         description: "Organizational unit of the staff member (from dim_servidor)"
+
+  - name: fct_emenda_documento
+    description: "One row per amendment × SIAFI expense document × expense phase. Source: Portal da Transparência emendas-parlamentares-documentos (2014–current). Incremental merge by ano_emenda."
+    columns:
+      - name: codigo_emenda
+        description: "Amendment identifier (composite PK with codigo_documento, fase_despesa — FK → dim_emenda)"
+        data_tests:
+          - not_null
+
+      - name: codigo_documento
+        description: "SIAFI document identifier (composite PK with codigo_emenda, fase_despesa)"
+        data_tests:
+          - not_null
+
+      - name: fase_despesa
+        description: "Expense phase: Empenho (commitment), Liquidação (accrual), or Pagamento (payment)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Empenho', 'Liquidação', 'Pagamento']
+
+      - name: ano_emenda
+        description: "Amendment year — used as incremental watermark"
+        data_tests:
+          - not_null
+
+      - name: senador_id
+        description: "Senator code (FK → dim_senador) — NULL for non-individual or non-senator amendments"
+
+      - name: valor_pago
+        description: "Amount paid in BRL (valid for Pagamento phase only)"
+
+      - name: valor_empenhado
+        description: "Amount committed in BRL (valid for Empenho phase only)"
+
+  - name: fct_apoiamento_emenda
+    description: "One row per SIAFI commitment × supporting legislator (apoiador). Source: Portal da Transparência apoiamento-emendas-parlamentares (2020–2025)."
+    columns:
+      - name: empenho
+        description: "SIAFI commitment identifier (composite PK with codigo_apoiador)"
+        data_tests:
+          - not_null
+
+      - name: codigo_apoiador
+        description: "SIAFI code of the supporting legislator (composite PK with empenho)"
+        data_tests:
+          - not_null
+
+      - name: ano_emenda
+        description: "Amendment year"
+        data_tests:
+          - not_null
+
+      - name: senador_id_apoiador
+        description: "Senator code of the supporter (FK → dim_senador) — NULL if not a current senator"
+
+      - name: valor_empenhado
+        description: "Total commitment amount in BRL (excludes cancellations)"
+
+      - name: valor_pago
+        description: "Total paid amount in BRL"
