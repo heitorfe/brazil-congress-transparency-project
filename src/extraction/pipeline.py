@@ -49,6 +49,10 @@ def _build_registry() -> dict[str, dict]:
     import extract_ceaps
     import extract_servidores
     import extract_auxilio_moradia
+    import extract_camara_deputados
+    import extract_camara_despesas
+    import extract_camara_proposicoes
+    import extract_camara_votacoes
 
     return {
         "senators": {
@@ -90,6 +94,27 @@ def _build_registry() -> dict[str, dict]:
             "fn":   extract_auxilio_moradia.extract_all,
             "desc": "Senator housing allowance snapshot (ADM)",
             "args": [],
+        },
+        # ---- Chamber of Deputies (Câmara dos Deputados) ----
+        "camara_deputados": {
+            "fn":   extract_camara_deputados.extract_all,
+            "desc": "Deputy biographical profiles, legislatures 56+57 (CAMARA)",
+            "args": [],
+        },
+        "camara_despesas": {
+            "fn":   extract_camara_despesas.extract_all,
+            "desc": "Deputy CEAP expense records (CAMARA)",
+            "args": ["start_year", "end_year"],
+        },
+        "camara_proposicoes": {
+            "fn":   extract_camara_proposicoes.extract_all,
+            "desc": "Legislative proposals authored by deputies (CAMARA)",
+            "args": ["start_year", "end_year"],
+        },
+        "camara_votacoes": {
+            "fn":   extract_camara_votacoes.extract_all,
+            "desc": "Plenary voting sessions and deputy votes (CAMARA)",
+            "args": ["start_date", "end_date"],
         },
     }
 

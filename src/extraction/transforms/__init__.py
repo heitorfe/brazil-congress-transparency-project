@@ -1,5 +1,5 @@
 """
-Flatten functions for all Senate data domains.
+Flatten functions for all Senate and Chamber data domains.
 
 Re-exports every public flatten function so callers can import from the
 top-level package without knowing which submodule a function lives in:
@@ -27,6 +27,12 @@ from .liderancas import flatten_lideranca_record
 from .processos import flatten_processo_record
 from .auxilio_moradia import flatten_auxilio_moradia_record
 
+# Chamber of Deputies (Câmara dos Deputados)
+from .camara_deputados import flatten_deputado_list, flatten_deputado_detail
+from .camara_despesas import flatten_despesa_deputado
+from .camara_proposicoes import flatten_proposicao
+from .camara_votacoes import flatten_votacao_camara, flatten_voto_camara
+
 __all__ = [
     "flatten_senator",
     "flatten_mandate",
@@ -44,4 +50,11 @@ __all__ = [
     "flatten_lideranca_record",
     "flatten_processo_record",
     "flatten_auxilio_moradia_record",
+    # Chamber
+    "flatten_deputado_list",
+    "flatten_deputado_detail",
+    "flatten_despesa_deputado",
+    "flatten_proposicao",
+    "flatten_votacao_camara",
+    "flatten_voto_camara",
 ]

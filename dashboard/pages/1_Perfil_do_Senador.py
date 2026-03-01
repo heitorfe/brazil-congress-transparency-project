@@ -85,8 +85,8 @@ with col_info:
     mandato_fim_ano = str(s["mandato_fim"])[:4] if s["mandato_fim"] else ""
     if mandato_fim_ano in ("2026", "2027"):
         st.warning(
-            "🗳️ **Candidato(a) à reeleição nas eleições de 2026.** "
-            "O mandato atual encerra em 2027."
+            "🗳️ **Possível candidato(a) à reeleição em 2026.** "
+            "O mandato atual encerra em 2027 — candidatura não confirmada."
         )
 
 # ── Accountability Scorecard ───────────────────────────────────────────────
@@ -191,34 +191,34 @@ with tab_votos:
     if votes_df.is_empty():
         st.info("Nenhuma votação registrada para este senador.")
     else:
-        # Vote distribution chart
+        # Presence rate visual (replaces the meaningless Sim/Não distribution chart)
         if not vote_summary.is_empty():
             v = vote_summary.row(0, named=True)
-            dist_data = {
-                "Tipo de voto": ["Sim", "Não", "Abstenção", "Ausente"],
-                "Quantidade": [
-                    v["total_sim"] or 0,
-                    v["total_nao"] or 0,
-                    v["total_abstencao"] or 0,
-                    v["total_ausente"] or 0,
-                ],
-            }
-            import pandas as pd
-            fig_dist = px.bar(
-                pd.DataFrame(dist_data),
-                x="Tipo de voto",
-                y="Quantidade",
-                color="Tipo de voto",
-                color_discrete_map={
-                    "Sim": "#2ecc71",
-                    "Não": "#e74c3c",
-                    "Abstenção": "#f39c12",
-                    "Ausente": "#95a5a6",
-                },
-                title=f"Distribuição de votos — {v['total_votacoes']} votações registradas",
+            taxa_val = float(v["taxa_presenca"] or 0)
+            total_vot = int(v["total_votacoes"] or 0)
+            ausentes = int(v["total_ausente"] or 0)
+
+            pc1, pc2, pc3 = st.columns(3)
+            pc1.metric(
+                "Taxa de presença",
+                f"{taxa_val:.1f}%",
+                help=f"Presença ativa (Sim / Não / Abstenção) em {total_vot} votações nominais desde 2019",
             )
-            fig_dist.update_layout(showlegend=False, height=300, margin=dict(t=40, b=10))
-            st.plotly_chart(fig_dist, use_container_width=True)
+            pc2.metric("Ausências registradas", f"{ausentes:,}".replace(",", "."))
+            pc3.metric("Total de votações", f"{total_vot:,}".replace(",", "."))
+
+            # Color-coded progress bar
+            cor = "#2ecc71" if taxa_val >= 75 else ("#f39c12" if taxa_val >= 50 else "#e74c3c")
+            st.markdown(
+                f"""
+                <div style="background:#eee;border-radius:4px;height:14px;width:100%">
+                  <div style="background:{cor};border-radius:4px;height:14px;width:{taxa_val:.1f}%"></div>
+                </div>
+                <small style="color:#666">{taxa_val:.1f}% de presença ativa</small>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.write("")
 
         # Votes table
         st.subheader("Últimas votações")
@@ -314,7 +314,7 @@ with tab_despesas:
         )
         st.plotly_chart(fig_year, use_container_width=True)
 
-        # Spending by category — all years summed (no year selection needed)
+        # Spending by category — all years summed
         by_cat = (
             ceaps_df
             .group_by("tipo_despesa")
@@ -335,11 +335,49 @@ with tab_despesas:
             textposition="outside",
         )
         fig_cat.update_layout(
-            height=max(250, len(by_cat) * 35),
+            height=max(250, len(by_cat) * 38),
             margin=dict(t=50, b=10, r=160),
             xaxis=dict(tickprefix="R$ ", tickformat=",.0f"),
         )
         st.plotly_chart(fig_cat, use_container_width=True)
+
+        # Monthly breakdown toggle
+        ver_mensal = st.toggle("Ver evolução mensal", key="ceaps_mensal_toggle")
+        if ver_mensal:
+            anos_disp = sorted(ceaps_df["ano"].drop_nulls().unique().to_list(), reverse=True)
+            ano_sel = st.selectbox("Ano", anos_disp, key="ceaps_ano_sel")
+            mensal = (
+                ceaps_df
+                .filter(pl.col("ano") == ano_sel)
+                .group_by("mes")
+                .agg(pl.col("total_reembolsado").sum().alias("total"))
+                .sort("mes")
+            )
+            MESES_PT = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
+                        7:"Jul",8:"Ago",9:"Set",10:"Out",11:"Nov",12:"Dez"}
+            mensal = mensal.with_columns(
+                pl.col("mes").map_elements(lambda m: MESES_PT.get(m, str(m)),
+                                          return_dtype=pl.Utf8).alias("mes_label")
+            )
+            fig_mensal = px.bar(
+                mensal.to_pandas(),
+                x="mes_label",
+                y="total",
+                title=f"Despesas mensais — {ano_sel}",
+                labels={"mes_label": "Mês", "total": "Total (R$)"},
+                color_discrete_sequence=["#c0392b"],
+                text="total",
+            )
+            fig_mensal.update_traces(
+                texttemplate="R$ %{y:,.0f}",
+                textposition="outside",
+            )
+            fig_mensal.update_layout(
+                height=300,
+                margin=dict(t=50, b=10),
+                yaxis=dict(tickprefix="R$ ", tickformat=",.0f"),
+            )
+            st.plotly_chart(fig_mensal, use_container_width=True)
 
         # Raw expense table
         with st.expander("Tabela detalhada"):
@@ -507,6 +545,275 @@ with tab_emendas:
         "Fonte: Portal da Transparência (CGU) — "
         "emendas-parlamentares-documentos + apoiamento-emendas-parlamentares"
     )
+
+st.divider()
+
+# ── Guia Cívico ─────────────────────────────────────────────────────────────
+st.header("📚 Guia Cívico — Como funciona o Senado Federal")
+st.caption(
+    "Informações sobre o papel do senador, o funcionamento das despesas (CEAPS), "
+    "votações, emendas e os mecanismos de fiscalização do Congresso Nacional."
+)
+
+with st.expander("🏛️ O papel do Senador Federal"):
+    st.markdown("""
+### O que é um Senador Federal?
+
+O **Senador Federal** representa o seu **estado** no Congresso Nacional — ao contrário dos
+deputados, que representam o povo de forma proporcional à população. O Senado é composto
+por **81 senadores**: exatamente **3 por estado** e pelo Distrito Federal, independentemente
+do tamanho ou população da unidade federativa.
+
+### Eleição e mandato
+
+- **Mandato**: 8 anos — o mais longo cargo eletivo do Brasil
+- **Sistema eleitoral**: Majoritário (quem tem mais votos ganha, sem segundo turno)
+- **Renovação**: O Senado se renova em dois momentos alternados dentro de cada legislatura de 8 anos:
+  - **1/3** dos senadores é renovado nas eleições de 2018, 2026, 2034...
+  - **2/3** são renovados nas eleições de 2022, 2030, 2038...
+
+Isso garante continuidade institucional — o Senado nunca é totalmente renovado de uma só vez.
+
+### Funções e poderes
+
+- **Aprovar indicações presidenciais**: embaixadores, ministros do STF, TCU, AGU, diretores de
+  agências reguladoras, chefes do Banco Central etc.
+- **Autorizar empréstimos externos** de estados e municípios
+- **Julgar o Presidente, Vice-Presidente e Ministros** de Estado por crimes de responsabilidade
+  (quando autorizado pela Câmara)
+- **Revisar projetos de lei** aprovados pela Câmara (e vice-versa no bicameralismo)
+- **Propor e votar PECs** (Propostas de Emenda à Constituição)
+- **Suspender a vigência de lei** declarada inconstitucional pelo STF
+
+### Câmara vs Senado
+
+| | Câmara dos Deputados | Senado Federal |
+|---|---|---|
+| **Representa** | O povo | Os estados |
+| **Tamanho** | 513 membros | 81 membros (3 por estado/DF) |
+| **Mandato** | 4 anos | 8 anos |
+| **Eleição** | Proporcional, lista aberta | Majoritária (turno único) |
+| **Julgamento de autoridades** | Autoriza o processo | Julga e condena |
+| **Aprovação de nomeações** | Não participa | Vota indicações presidenciais |
+""")
+
+with st.expander("💰 CEAPS — Cota para o Exercício da Atividade Parlamentar do Senado"):
+    st.markdown("""
+### O que é a CEAPS?
+
+A **CEAPS** (Cota para o Exercício da Atividade Parlamentar do Senado) é o equivalente
+senatorial do CEAP da Câmara — uma verba de reembolso de despesas exclusivamente vinculadas
+ao exercício do mandato. **Não é salário**: exige comprovação com nota fiscal ou recibo.
+
+### Composição do valor mensal
+
+O valor total mensal varia por estado, pois inclui o custo real de passagens entre o estado
+de origem e Brasília:
+
+| Componente | Valor |
+|---|---|
+| Base de indenização fixa | R$ 15.000 / mês |
+| Passagens aéreas (5 voos de ida e volta por mês) | Custo real — varia por estado |
+| **Total médio mensal** | **~R$ 44.300** (varia de ~R$ 30.000 a ~R$ 57.000) |
+
+O estado de origem mais distante (AM, AP, RR, PA) gera o maior custo de passagens e,
+portanto, a CEAPS mais alta. Estados próximos a Brasília (GO, MG) têm valores menores.
+
+### Categorias permitidas
+
+As mesmas categorias válidas para os deputados (CEAP) se aplicam:
+
+| Categoria | Exemplos |
+|---|---|
+| Passagens aéreas | Voos para o exercício do mandato |
+| Hospedagem | Hotéis em viagens de trabalho |
+| Alimentação | Refeições em exercício do mandato |
+| Telefonia | Celular e telefone do escritório |
+| Locação de escritório | Escritório de apoio parlamentar no estado |
+| Transporte | Aluguel de veículos, táxi, pedágio, estacionamento |
+| Combustíveis e lubrificantes | Para uso no mandato |
+| Consultorias | Serviços técnicos de apoio à atividade parlamentar |
+| Publicações | Assinatura de jornais e revistas relacionadas ao mandato |
+| Segurança | Serviços contratados de segurança pessoal |
+
+### Transparência
+
+Todos os registros de CEAPS são publicados no [Portal de Dados Abertos do Senado](https://dadosabertos.senado.leg.br/)
+e no [Portal da Transparência do Senado](https://www12.senado.leg.br/transparencia).
+Os dados desta página refletem o que está disponível na API aberta do Senado Federal.
+""")
+
+with st.expander("🗳️ Como funcionam as votações no Senado"):
+    st.markdown("""
+### Tipos de votação no Senado
+
+#### 1. Votação Simbólica
+
+A forma mais comum. O presidente do Senado convida os que são **a favor** a permanecerem
+sentados e os contrários a se manifestarem. Não gera registro individual — apenas o resultado
+é registrado. Usada quando há consenso entre as lideranças.
+
+#### 2. Votação Nominal (eletrônica)
+
+Cada senador vota individualmente pelo painel eletrônico. O voto de cada um é **público**
+(SIM / NÃO / ABSTENÇÃO). É obrigatória para:
+- Proposta de Emenda à Constituição (PEC)
+- Projetos que exijam quórum especial (leis complementares, cassações)
+- Quando qualquer senador solicita a verificação de votação simbólica
+
+#### 3. Votação Secreta
+
+Usada principalmente para eleições internas (Presidente do Senado, Mesa Diretora) e para
+votação do processo de impeachment do Presidente da República (fase de condenação).
+
+### Orientação de liderança
+
+Assim como na Câmara, os **líderes de bancada** registram a orientação do partido antes de
+cada votação nominal. Os senadores são livres para votar de forma diferente (voto divergente),
+mas há pressão política para seguir a orientação.
+
+### Quóruns especiais
+
+| Tipo de deliberação | Quórum mínimo |
+|---|---|
+| Votação ordinária | Maioria dos presentes (quórum mínimo de 41 senadores em plenário) |
+| Lei complementar | Maioria absoluta (41 votos) |
+| Emenda Constitucional (PEC) | 3/5 dos senadores = **49 votos**, em dois turnos |
+| Condenação no impeachment | 2/3 dos senadores = **54 votos** |
+| Suspensão de lei inconstitucional | Maioria absoluta (41 votos) |
+
+### Taxa de presença nesta página
+
+A taxa é calculada como a proporção de votações registradas na base de dados (desde 2019)
+em que o senador registrou SIM, NÃO, ABSTENÇÃO ou voto equivalente. **Ausência** pode ser
+por motivo justificado (licença médica, missão oficial, representação no exterior) ou
+injustificado. Senadores com mandato iniciado após 2019 terão histórico menor.
+""")
+
+with st.expander("📋 Emendas Parlamentares — como funcionam"):
+    st.markdown("""
+### O que são emendas parlamentares?
+
+**Emendas parlamentares** são o mecanismo pelo qual senadores e deputados indicam como parte
+dos recursos do Orçamento da União (LOA) deve ser aplicada. Após aprovação da LOA, os recursos
+são transferidos a estados, municípios, entidades públicas ou organizações — os **favorecidos**.
+
+### Tipos de emendas
+
+| Tipo | Quem propõe | Execução obrigatória? | Limite anual |
+|---|---|---|---|
+| **Individual** | Cada parlamentar individualmente | Sim (desde 2015) | 2% da RCL* |
+| **De Bancada** | Bancada estadual (senadores + deputados do mesmo estado) | Sim (desde 2019) | 1% da RCL |
+| **De Comissão** | Comissões temáticas do Congresso | Não | — |
+| **Do Relator (RP9)** | Relator-geral do orçamento | Declarada inconstitucional (STF, 2022) | — |
+
+*RCL = Receita Corrente Líquida da União. O limite das emendas individuais em 2024 foi de
+aproximadamente R$ 15,5 milhões por parlamentar (senadores e deputados têm o mesmo limite).
+
+### Fases de execução
+
+| Fase | O que significa |
+|---|---|
+| **Empenho** | O governo reserva formalmente os recursos — compromisso contábil |
+| **Liquidação** | Verificação de que a obra ou serviço foi entregue conforme contratado |
+| **Pagamento** | Transferência efetiva do dinheiro ao favorecido |
+
+Esta página usa a fase **Pagamento** como referência principal de valor transferido — o
+indicador mais conservador e confiável do que efetivamente chegou ao beneficiário.
+
+### O "Orçamento Secreto" (RP9 — 2020 a 2022)
+
+As **Emendas do Relator** permitiram distribuição de bilhões sem identificação pública do
+parlamentar beneficiado. O volume chegou a R$ 24,8 bilhões em 2020. O STF declarou o
+mecanismo inconstitucional em dezembro de 2022 (ADPF 854).
+
+### Vinculação dos dados nesta página
+
+A vinculação entre os dados de emendas do Portal da Transparência (CGU) e os perfis de
+senadores é feita por **normalização de nome** (acentos removidos, maiúsculas uniformizadas).
+Isso pode causar falhas para senadores com nomes idênticos ou grafias divergentes entre
+o sistema da CGU e o sistema do Senado Federal.
+
+### Apoiamentos
+
+**Apoiamento** é quando um segundo senador (ou deputado) co-assina um empenho de emenda de
+outro parlamentar. O apoiador não é o autor original da emenda, mas indica formalmente
+concordância com a destinação dos recursos.
+""")
+
+with st.expander("🏢 Comissões do Senado — como funcionam"):
+    st.markdown("""
+### O que são as comissões?
+
+As **comissões** são órgãos colegiados do Senado compostos por um subconjunto de senadores,
+criados para analisar matérias em profundidade antes da votação em plenário. Cada comissão
+é especializada em uma área temática.
+
+### Tipos de comissões no Senado
+
+| Tipo | Descrição |
+|---|---|
+| **Permanente** | Existência contínua — analisam matérias de sua área temática (ex: CAE, CI, CCJ) |
+| **Temporária** | Criadas para finalidade específica e se extinguem ao cumprir sua missão |
+| **CPI** | Comissão Parlamentar de Inquérito — investigativa, com poderes quase judiciais |
+| **Mistas** | Compostas por senadores e deputados (ex: Comissão Mista do Orçamento — CMO) |
+
+### Comissões permanentes importantes
+
+| Sigla | Nome | Área |
+|---|---|---|
+| CCJ | Constituição, Justiça e Cidadania | Constitucionalidade de proposições |
+| CAE | Assuntos Econômicos | Economia, finanças, tributação |
+| CAS | Assuntos Sociais | Saúde, previdência, assistência social |
+| CI | Ciência, Tecnologia, Inovação e Comunicação | Tecnologia, telecomunicações |
+| CRA | Agricultura e Reforma Agrária | Agronegócio, terras |
+| CDR | Desenvolvimento Regional e Turismo | Infraestrutura, turismo |
+| CREDN | Relações Exteriores e Defesa Nacional | Política externa, forças armadas |
+
+### Cargo nas comissões
+
+- **Titular**: Membro efetivo com direito a voto
+- **Suplente**: Substitui o titular quando este está ausente; pode ser convocado
+- **Presidente** / **Vice-presidente**: Conduz os trabalhos, decide a pauta
+
+Um senador pode participar de diversas comissões simultaneamente, mas a presidência de uma
+comissão é cargo de grande poder político — define quais propostas chegam a votar.
+""")
+
+with st.expander("🔍 Fiscalização e controle — como o cidadão pode monitorar"):
+    st.markdown("""
+### Quem fiscaliza o Senado?
+
+#### TCU — Tribunal de Contas da União
+
+O **TCU** é o órgão de controle externo do Congresso Nacional — é auxiliar do próprio
+Legislativo no controle do Executivo. Pode auditar a aplicação de recursos de emendas
+parlamentares e de CEAPS, aplicar multas e determinar ressarcimentos.
+
+#### CGU — Controladoria-Geral da União
+
+A **CGU** fiscaliza a execução dos programas federais, incluindo a execução de emendas
+parlamentares, e publica os dados no Portal da Transparência.
+
+#### Portal da Transparência do Senado
+
+O [Portal de Transparência do Senado](https://www12.senado.leg.br/transparencia) publica:
+- Despesas com CEAPS por senador
+- Remunerações de servidores
+- Contratos e licitações do Senado
+- Prestações de contas das lideranças
+
+### Como você pode fiscalizar
+
+| Ação | Como fazer |
+|---|---|
+| Ver os gastos CEAPS de qualquer senador | [Transparência do Senado](https://www12.senado.leg.br/transparencia/sen) |
+| Ver emendas de todos os parlamentares | [Portal da Transparência — emendas](https://portaldatransparencia.gov.br/emendas-parlamentares) |
+| Acompanhar votações do plenário | [API do Senado — votações](https://legis.senado.leg.br/dadosabertos/plenario/lista/votacao) |
+| Consultar o texto de qualquer proposição | [Sistema de Legislação do Senado](https://www25.senado.leg.br/web/atividade/materias) |
+| Verificar a composição das comissões | [Comissões do Senado](https://www25.senado.leg.br/web/atividade/comissoes) |
+| Dados abertos do Senado | [dadosabertos.senado.leg.br](https://dadosabertos.senado.leg.br/) |
+""")
 
 st.divider()
 st.caption("Fonte: API de Dados Abertos do Senado Federal — legis.senado.leg.br/dadosabertos")

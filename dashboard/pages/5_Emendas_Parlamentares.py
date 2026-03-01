@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -6,6 +9,8 @@ import polars as pl
 from queries import (
     get_emendas_kpis,
     get_emendas_por_ano,
+    get_emendas_por_uf,
+    get_emendas_por_uf_autoria,
     get_top_autores_emendas,
 )
 
@@ -39,6 +44,24 @@ def load_por_ano():
 @st.cache_data(ttl=3600)
 def load_top(n: int):
     return get_top_autores_emendas(n)
+
+
+@st.cache_data(ttl=3600)
+def load_por_uf(ano_inicio: int | None, ano_fim: int | None):
+    return get_emendas_por_uf(ano_inicio, ano_fim)
+
+
+@st.cache_data(ttl=3600)
+def load_por_uf_autoria(ano_inicio: int | None, ano_fim: int | None):
+    return get_emendas_por_uf_autoria(ano_inicio, ano_fim)
+
+
+@st.cache_data
+def load_geojson() -> dict:
+    """Load the pre-built Brazilian state GeoJSON from local assets (97 KB)."""
+    path = Path(__file__).parent.parent / "assets" / "br_states.geojson"
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ── Page header ─────────────────────────────────────────────────────────────
@@ -205,7 +228,175 @@ st.divider()
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# SEÇÃO 2 — RANKING DE AUTORES
+# SEÇÃO 2 — MAPA COROPLÉTICO POR UF
+# ══════════════════════════════════════════════════════════════════════════
+
+st.header("🗺️ Distribuição Geográfica por Estado (UF)")
+
+# ── Mode toggle ─────────────────────────────────────────────────────────
+_MODO_DESTINO  = "🏥 Destino — UF que recebe o recurso"
+_MODO_AUTORIA  = "🏛️ Autoria — UF do parlamentar autor"
+
+map_modo = st.radio(
+    "Perspectiva do mapa",
+    options=[_MODO_DESTINO, _MODO_AUTORIA],
+    horizontal=True,
+    key="map_modo",
+    help=(
+        "**Destino**: onde o dinheiro chegou (estado do beneficiário). "
+        "**Autoria**: de onde vêm os parlamentares que enviaram o dinheiro."
+    ),
+)
+
+if map_modo == _MODO_DESTINO:
+    st.caption("Total efetivamente pago a beneficiários localizados em cada estado.")
+else:
+    st.caption(
+        "Total pago por parlamentares representando cada estado — "
+        "inclui apenas autores vinculados a senadores identificados na base."
+    )
+
+# ── Year range selector ──────────────────────────────────────────────────
+_anos = sorted(anual_df["ano_emenda"].to_list()) if not anual_df.is_empty() else [2015, 2025]
+_ano_min_data, _ano_max_data = int(_anos[0]), int(_anos[-1])
+
+map_col, filter_col = st.columns([4, 1])
+with filter_col:
+    st.markdown("**Filtrar período**")
+    map_ano_inicio, map_ano_fim = st.slider(
+        "Ano da emenda",
+        min_value=_ano_min_data,
+        max_value=_ano_max_data,
+        value=(_ano_min_data, _ano_max_data),
+        key="map_ano_slider",
+        label_visibility="collapsed",
+    )
+    st.caption(f"Exibindo {map_ano_inicio}–{map_ano_fim}")
+
+_ano_i = map_ano_inicio if map_ano_inicio > _ano_min_data else None
+_ano_f = map_ano_fim   if map_ano_fim   < _ano_max_data   else None
+
+# ── Load the right dataset ───────────────────────────────────────────────
+if map_modo == _MODO_DESTINO:
+    uf_df    = load_por_uf(_ano_i, _ano_f)
+    uf_col   = "uf_recurso"
+    bar_y_label = "UF (destino)"
+    map_hover = {
+        "uf_recurso":      False,
+        "total_pago_f":    False,
+        "total_pago_fmt":  True,
+        "num_emendas":     True,
+        "num_favorecidos": True,
+        "num_municipios":  True,
+    }
+    map_labels = {
+        "total_pago_fmt":  "Total pago",
+        "num_emendas":     "Emendas",
+        "num_favorecidos": "Favorecidos",
+        "num_municipios":  "Municípios",
+    }
+    bar_custom   = ["num_emendas", "num_municipios", "num_favorecidos"]
+    bar_hover_tpl = (
+        "<b>%{y}</b><br>"
+        "Total pago: %{text}<br>"
+        "Emendas: %{customdata[0]}<br>"
+        "Municípios: %{customdata[1]}<br>"
+        "Favorecidos: %{customdata[2]}<extra></extra>"
+    )
+else:
+    uf_df    = load_por_uf_autoria(_ano_i, _ano_f)
+    uf_col   = "uf"
+    bar_y_label = "UF (autoria)"
+    map_hover = {
+        "uf":             False,
+        "total_pago_f":   False,
+        "total_pago_fmt": True,
+        "num_emendas":    True,
+        "num_autores":    True,
+        "num_municipios": True,
+    }
+    map_labels = {
+        "total_pago_fmt": "Total pago",
+        "num_emendas":    "Emendas",
+        "num_autores":    "Autores",
+        "num_municipios": "Municípios (destino)",
+    }
+    bar_custom   = ["num_emendas", "num_autores", "num_municipios"]
+    bar_hover_tpl = (
+        "<b>%{y}</b><br>"
+        "Total pago: %{text}<br>"
+        "Emendas: %{customdata[0]}<br>"
+        "Autores: %{customdata[1]}<br>"
+        "Municípios (destino): %{customdata[2]}<extra></extra>"
+    )
+
+br_geojson = load_geojson()
+
+with map_col:
+    if not uf_df.is_empty():
+        uf_pd = uf_df.to_pandas()
+        uf_pd["total_pago_f"]   = uf_pd["total_pago"].apply(float)
+        uf_pd["total_pago_fmt"] = uf_pd["total_pago_f"].apply(
+            lambda v: f"R$ {v / 1e9:.2f}B"
+        )
+
+        fig_map = px.choropleth_map(
+            uf_pd,
+            geojson=br_geojson,
+            locations=uf_col,
+            featureidkey="id",
+            color="total_pago_f",
+            map_style="white-bg",
+            zoom=3.0,
+            center={"lat": -15.0, "lon": -55.0},
+            color_continuous_scale="Blues",
+            hover_name=uf_col,
+            opacity=0.8,
+            hover_data=map_hover,
+            labels=map_labels,
+        )
+        fig_map.update_coloraxes(
+            colorbar_title="R$",
+            colorbar_tickformat=",.0f",
+        )
+        fig_map.update_layout(
+            height=520,
+            margin=dict(t=10, b=10, l=0, r=0),
+        )
+        st.plotly_chart(fig_map, use_container_width=True)
+
+# UF bar chart below the map — same filtered data
+if not uf_df.is_empty():
+    fig_uf = px.bar(
+        uf_pd.sort_values("total_pago_f"),
+        x="total_pago_f",
+        y=uf_col,
+        orientation="h",
+        color="total_pago_f",
+        color_continuous_scale="Blues",
+        text="total_pago_fmt",
+        labels={"total_pago_f": "Total pago (R$)", uf_col: bar_y_label},
+        height=max(500, len(uf_pd) * 22),
+        custom_data=bar_custom,
+    )
+    fig_uf.update_traces(
+        textposition="outside",
+        hovertemplate=bar_hover_tpl,
+    )
+    fig_uf.update_layout(
+        showlegend=False,
+        coloraxis_showscale=False,
+        xaxis_tickformat=",.0f",
+        yaxis=dict(categoryorder="total ascending"),
+        margin=dict(t=10, b=10, r=120),
+    )
+    st.plotly_chart(fig_uf, use_container_width=True)
+
+st.divider()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SEÇÃO 3 — RANKING DE AUTORES
 # ══════════════════════════════════════════════════════════════════════════
 
 st.header("🏆 Maiores Autores de Emendas")
@@ -258,7 +449,7 @@ if not top_df.is_empty():
     fig_top.update_layout(
         yaxis=dict(categoryorder="total ascending"),
         xaxis_tickformat=",.0f",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        showlegend=False,
         margin=dict(l=0, r=120, t=20, b=10),
     )
     st.plotly_chart(fig_top, use_container_width=True)

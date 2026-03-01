@@ -21,12 +21,15 @@ aggregated as (
         ano_emenda,
         tipo_emenda,
 
-        -- Senator linkage (will be NULL for bancada/committee/rapporteur amendments)
-        max(senador_id)                             as senador_id,
-        max(nome_parlamentar)                       as nome_parlamentar,
-        max(partido_sigla)                          as partido_sigla,
-        max(estado_sigla)                           as estado_sigla,
-        bool_or(is_senador_atual)                   as is_senador_atual,
+        -- Author linkage — senator takes priority over deputy
+        max(senador_id)                                                     as senador_id,
+        max(deputado_id)                                                    as deputado_id,
+        -- Coalesce senator → deputy for display columns
+        coalesce(max(nome_parlamentar_senador), max(nome_parlamentar_deputado))   as nome_parlamentar,
+        coalesce(max(partido_sigla_senador),    max(partido_sigla_deputado))      as partido_sigla,
+        coalesce(max(estado_sigla_senador),     max(estado_sigla_deputado))       as estado_sigla,
+        bool_or(is_senador_atual)                                           as is_senador_atual,
+        bool_or(is_deputado_atual)                                          as is_deputado_atual,
 
         -- Volume metrics
         count(*)                                    as num_documentos,

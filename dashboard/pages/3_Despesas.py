@@ -8,6 +8,7 @@ from queries import (
     get_ceaps_all_senators_totals,
     get_ceaps_top_categories,
     get_ceaps_categories_by_year,
+    get_ceaps_raw_receipts,
 )
 
 st.set_page_config(
@@ -192,6 +193,132 @@ with st.expander("Ver tabela completa"):
     )
 
 st.divider()
+
+# ── Outlier detection: high-value individual receipts ──────────────────────
+st.subheader("🔴 Recibos de Alto Valor — Alerta de Irregularidades")
+st.caption(
+    "Recibos individuais cujo valor supera 3× a mediana da categoria no período selecionado. "
+    "Valores altos podem ser legítimos, mas merecem verificação. "
+    "Clique no nome do fornecedor para investigar o CNPJ."
+)
+
+ano_outlier = st.selectbox(
+    "Ano para análise",
+    options=list(range(2026, 2018, -1)),
+    index=0,
+    key="outlier_ano",
+)
+
+@st.cache_data(ttl=3600)
+def load_raw_receipts(ano: int):
+    return get_ceaps_raw_receipts(ano)
+
+raw_df = load_raw_receipts(ano_outlier)
+
+if not raw_df.is_empty():
+    # Compute per-category median and flag outliers (> 3× median)
+    medians = (
+        raw_df.group_by("tipo_despesa")
+        .agg(pl.col("valor_reembolsado").median().alias("mediana_cat"))
+    )
+    raw_flagged = (
+        raw_df
+        .join(medians, on="tipo_despesa", how="left")
+        .with_columns(
+            (pl.col("valor_reembolsado") / pl.col("mediana_cat")).alias("razao_mediana")
+        )
+        .filter(pl.col("razao_mediana") > 3.0)
+        .sort("valor_reembolsado", descending=True)
+    )
+
+    if not raw_flagged.is_empty():
+        # Scatter: category vs value — outliers in red
+        import plotly.graph_objects as go_raw
+        fig_out = px.strip(
+            raw_flagged.to_pandas(),
+            x="tipo_despesa",
+            y="valor_reembolsado",
+            color_discrete_sequence=["#e74c3c"],
+            hover_data=["nome_senador", "fornecedor", "cnpj_cpf", "data"],
+            labels={
+                "tipo_despesa": "Categoria",
+                "valor_reembolsado": "Valor do Recibo (R$)",
+            },
+            title=f"Recibos acima de 3× a mediana da categoria — {ano_outlier}",
+        )
+        fig_out.update_layout(
+            height=380,
+            margin=dict(t=50, b=10),
+            xaxis_tickangle=-30,
+            yaxis=dict(tickprefix="R$ ", tickformat=",.0f"),
+        )
+        st.plotly_chart(fig_out, use_container_width=True)
+
+        display_out = raw_flagged.head(100).select([
+            pl.col("nome_senador").alias("Senador"),
+            pl.col("data").alias("Data"),
+            pl.col("tipo_despesa").alias("Categoria"),
+            pl.col("fornecedor").alias("Fornecedor"),
+            pl.col("cnpj_cpf").alias("CNPJ/CPF"),
+            pl.col("valor_reembolsado").map_elements(
+                lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                return_dtype=pl.Utf8,
+            ).alias("Valor"),
+            pl.col("razao_mediana").map_elements(
+                lambda v: f"{v:.1f}×",
+                return_dtype=pl.Utf8,
+            ).alias("× mediana"),
+        ])
+        st.dataframe(display_out, use_container_width=True, hide_index=True)
+        st.caption(
+            f"{len(raw_flagged)} recibo(s) acima de 3× a mediana da categoria em {ano_outlier}."
+        )
+    else:
+        st.success(f"Nenhum recibo acima de 3× a mediana da categoria em {ano_outlier}.")
+else:
+    st.info(f"Sem recibos disponíveis para {ano_outlier}.")
+
+st.divider()
+
+# ── Glossário ──────────────────────────────────────────────────────────────
+with st.expander("📋 Como funcionam as despesas CEAPS do Senado"):
+    st.markdown("""
+### O que é a CEAPS?
+
+A **CEAPS** (Cota para o Exercício da Atividade Parlamentar do Senado) é uma verba mensal
+de reembolso de despesas dos senadores, destinada exclusivamente ao exercício do mandato.
+**Não é salário** — é ressarcimento de gastos comprovados com nota fiscal.
+
+### Categorias permitidas
+
+| Categoria | O que cobre |
+|---|---|
+| **Locomoção / Hospedagem** | Deslocamentos, hotéis, alimentação e combustíveis em serviço |
+| **Passagens aéreas** | Voos domésticos para o exercício do mandato |
+| **Divulgação parlamentar** | Comunicação com eleitores (vedada nos 120 dias pré-eleição) |
+| **Consultorias técnicas** | Serviços especializados de apoio ao mandato |
+| **Aluguel de escritório** | Escritório político de apoio no estado de origem |
+| **Segurança privada** | Proteção pessoal contratada |
+| **Serviços postais** | Correspondências oficiais |
+
+### Limites e controle
+
+O valor mensal varia por senador e é definido pelo Senado com base em custo de vida
+e distância de Brasília. Não há limite anual acumulável — valores não usados no mês
+são devolvidos à conta do Senado.
+
+O sistema de controle interno do Senado aplica **glosas** quando identifica recibos
+inválidos, fornecedores irregulares ou categorias não permitidas.
+
+### Como investigar
+
+- Verifique o **CNPJ do fornecedor** na [Receita Federal](https://solucoes.receita.fazenda.gov.br/Servicos/cnpjreva/)
+- Acesse as **notas fiscais originais** no
+  [portal ADM do Senado](https://adm.senado.gov.br/adm-dadosabertos)
+- Cruce com a aba de emendas do senador: fornecedores beneficiários de emendas que também
+  aparecem como fornecedores de CEAPS podem indicar relação indevida
+""")
+
 st.caption(
     "Fonte: ADM — Sistema de Dados Abertos do Senado Federal — "
     "adm.senado.gov.br/adm-dadosabertos"

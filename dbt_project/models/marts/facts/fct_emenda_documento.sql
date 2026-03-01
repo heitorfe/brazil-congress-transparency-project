@@ -28,10 +28,15 @@ dim as (
     select
         codigo_emenda,
         senador_id,
-        nome_parlamentar,
-        partido_sigla,
-        estado_sigla,
+        nome_parlamentar_senador,
+        partido_sigla_senador,
+        estado_sigla_senador,
+        deputado_id,
+        nome_parlamentar_deputado,
+        partido_sigla_deputado,
+        estado_sigla_deputado,
         is_senador_atual,
+        is_deputado_atual,
         is_emenda_individual
     from {{ ref('dim_emenda') }}
 ),
@@ -51,12 +56,17 @@ final as (
         d.nome_autor_emenda,
         d.numero_emenda,
 
-        -- Senator linkage (nullable — only for Emenda Individual matching current senators)
+        -- Author linkage (senator or deputy, nullable for non-individual amendments)
         e.senador_id,
-        e.nome_parlamentar,
-        e.partido_sigla,
-        e.estado_sigla,
+        e.nome_parlamentar_senador,
+        e.partido_sigla_senador,
+        e.estado_sigla_senador,
+        e.deputado_id,
+        e.nome_parlamentar_deputado,
+        e.partido_sigla_deputado,
+        e.estado_sigla_deputado,
         e.is_senador_atual,
+        e.is_deputado_atual,
         e.is_emenda_individual,
 
         -- Location

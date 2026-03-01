@@ -25,6 +25,8 @@ models:
       +materialized: view
       transparencia:
         +tags: ['transparencia']
+      camara:
+        +tags: ['camara']
     marts:
       +schema: marts
       +materialized: table

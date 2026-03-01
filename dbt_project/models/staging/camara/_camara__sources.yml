@@ -1,0 +1,45 @@
+version: 2
+
+sources:
+  - name: camara
+    description: >
+      Raw Parquet files extracted from the Brazilian Chamber of Deputies
+      (Câmara dos Deputados) Open Data API v2
+      (https://dadosabertos.camara.leg.br/api/v2).
+    tables:
+      - name: camara_deputados
+        description: >
+          Biographical detail for each unique deputy extracted across all
+          configured legislatures (currently 56 and 57).
+          One row per unique deputado_id.
+          Source: GET /deputados/{id}
+
+      - name: camara_deputados_lista
+        description: >
+          Deputy list per legislature — records which legislature(s) each
+          deputy belonged to.
+          One row per deputado_id × id_legislatura.
+          Source: GET /deputados?idLegislatura={n}
+
+      - name: camara_despesas
+        description: >
+          CEAP expense records for deputies (Cota para Exercício da Atividade
+          Parlamentar). One row per expense document.
+          Source: GET /deputados/{id}/despesas
+
+      - name: camara_proposicoes
+        description: >
+          Legislative proposals (PL, PLP, PEC, MPV, etc.) authored by deputies.
+          One row per proposicao_id × deputado_id_autor pair.
+          Source: GET /proposicoes?idDeputadoAutor={id}
+
+      - name: camara_votacoes
+        description: >
+          Plenary voting session metadata.
+          One row per unique votacao_id.
+          Source: GET /votacoes
+
+      - name: camara_votos
+        description: >
+          Individual deputy votes — one row per deputado_id × votacao_id.
+          Source: GET /votacoes/{id}/votos

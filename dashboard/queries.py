@@ -430,6 +430,17 @@ def get_pessoal_kpis() -> dict:
             )
         """).fetchone()[0]
 
+        # Average net salary for latest month (tipo_folha = 'Normal' avoids double-counting)
+        avg_latest = con.execute("""
+            SELECT COALESCE(AVG(remuneracao_liquida), 0)
+            FROM main_marts.fct_remuneracao_servidor
+            WHERE (ano, mes) IN (
+                SELECT ano, mes FROM main_marts.fct_remuneracao_servidor
+                ORDER BY ano DESC, mes DESC LIMIT 1
+            )
+            AND tipo_folha = 'Normal'
+        """).fetchone()[0]
+
     result = {
         "num_servidores_ativos": servidores,
         "num_pensionistas": pensionistas,
@@ -437,6 +448,7 @@ def get_pessoal_kpis() -> dict:
         "total_bruto_mes": float(latest["total_bruto"][0]) if len(latest) > 0 else 0,
         "total_pensionistas_mes": float(pensionistas_latest or 0),
         "total_horas_extras_mes": float(horas_latest or 0),
+        "avg_remuneracao_mes": float(avg_latest or 0),
         "ano_ref": int(latest["ano"][0]) if len(latest) > 0 else 0,
         "mes_ref": int(latest["mes"][0]) if len(latest) > 0 else 0,
     }
@@ -702,6 +714,13 @@ def get_vinculo_por_ano(ano: int) -> pl.DataFrame:
 
 # ── Emendas Parlamentares ────────────────────────────────────────────────────
 
+# 26 states + DF; used to exclude '-1' / 'EX' / null sentinel values
+_VALID_UFS = (
+    "'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA',"
+    "'MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN',"
+    "'RS','RO','RR','SC','SP','SE','TO'"
+)
+
 def get_emendas_kpis() -> dict:
     """Top-level KPIs for the emendas dashboard page."""
     with _con() as con:
@@ -723,6 +742,78 @@ def get_emendas_kpis() -> dict:
         "total_pago":          row[4] or 0.0,
         "total_empenhado":     row[5] or 0.0,
     }
+
+
+def get_emendas_por_uf(
+    ano_inicio: int | None = None,
+    ano_fim: int | None = None,
+) -> pl.DataFrame:
+    """Total paid per Brazilian state (UF) — used for the choropleth map.
+
+    Filters out sentinel values ('-1', 'EX', NULL) so only the 27 valid
+    state codes appear.  Accepts optional year range to allow the user to
+    slice by period.
+    """
+    params: list = []
+    extra = ""
+    if ano_inicio is not None:
+        extra += " AND ano_emenda >= ?"
+        params.append(ano_inicio)
+    if ano_fim is not None:
+        extra += " AND ano_emenda <= ?"
+        params.append(ano_fim)
+
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                uf_recurso,
+                sum(valor_pago)                as total_pago,
+                count(distinct codigo_emenda)  as num_emendas,
+                count(distinct favorecido)     as num_favorecidos,
+                count(distinct municipio_recurso) as num_municipios
+            FROM main_marts.fct_emenda_documento
+            WHERE fase_despesa = 'Pagamento'
+              AND uf_recurso IN ({_VALID_UFS})
+              {extra}
+            GROUP BY uf_recurso
+            ORDER BY total_pago DESC
+        """, params).pl()
+
+
+def get_emendas_por_uf_autoria(
+    ano_inicio: int | None = None,
+    ano_fim: int | None = None,
+) -> pl.DataFrame:
+    """Total paid grouped by the *author's* home state (UF do parlamentar).
+
+    Uses agg_emenda_por_autor, which already carries estado_sigla from the
+    dim_senador join.  Only authors successfully linked to a senator record
+    are included.
+    """
+    params: list = []
+    extra = ""
+    if ano_inicio is not None:
+        extra += " AND ano_emenda >= ?"
+        params.append(ano_inicio)
+    if ano_fim is not None:
+        extra += " AND ano_emenda <= ?"
+        params.append(ano_fim)
+
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                estado_sigla                              as uf,
+                sum(total_pago)                           as total_pago,
+                sum(num_emendas)                          as num_emendas,
+                count(distinct nome_autor_emenda)         as num_autores,
+                sum(num_municipios_distintos)             as num_municipios
+            FROM main_marts.agg_emenda_por_autor
+            WHERE estado_sigla IS NOT NULL
+              AND estado_sigla IN ({_VALID_UFS})
+              {extra}
+            GROUP BY estado_sigla
+            ORDER BY total_pago DESC
+        """, params).pl()
 
 
 def get_emendas_por_ano() -> pl.DataFrame:
@@ -857,6 +948,262 @@ def get_senator_emendas_municipios(senador_id: str) -> pl.DataFrame:
         """, [senador_id]).pl()
 
 
+# ── Deputies (Câmara) queries ──────────────────────────────────────────────
+
+def get_all_deputies() -> pl.DataFrame:
+    """All deputies in dim_deputado, sorted by name."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                deputado_id,
+                nome_parlamentar,
+                nome_civil,
+                sigla_partido,
+                sigla_uf,
+                situacao,
+                em_exercicio,
+                url_foto,
+                legislatura_min,
+                legislatura_max
+            FROM main_marts.dim_deputado
+            ORDER BY nome_parlamentar
+        """).pl()
+
+
+def get_deputy_by_id(deputado_id: str) -> pl.DataFrame:
+    """Full dim_deputado row for a single deputy."""
+    with _con() as con:
+        return con.execute("""
+            SELECT *
+            FROM main_marts.dim_deputado
+            WHERE deputado_id = ?
+        """, [deputado_id]).pl()
+
+
+def get_deputies_party_composition() -> pl.DataFrame:
+    """Deputy count per party (active deputies only)."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                sigla_partido,
+                COUNT(*) AS num_deputados,
+                SUM(CASE WHEN em_exercicio THEN 1 ELSE 0 END) AS em_exercicio
+            FROM main_marts.dim_deputado
+            GROUP BY sigla_partido
+            ORDER BY num_deputados DESC
+        """).pl()
+
+
+def get_deputy_vote_summary(deputado_id: str) -> pl.DataFrame:
+    """Aggregate vote-type counts for a deputy (for the accountability scorecard)."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                COUNT(*)                                               AS total_votacoes,
+                SUM(CASE WHEN voto_afirmativo   THEN 1 ELSE 0 END)   AS total_sim,
+                SUM(CASE WHEN voto_negativo     THEN 1 ELSE 0 END)   AS total_nao,
+                SUM(CASE WHEN presente_sem_voto THEN 1 ELSE 0 END)   AS total_abstencao,
+                ROUND(
+                    100.0 * SUM(CASE WHEN voto_afirmativo OR voto_negativo OR presente_sem_voto
+                                     THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0), 1
+                ) AS taxa_presenca
+            FROM main_marts.fct_votacao_deputado
+            WHERE deputado_id = ?
+        """, [deputado_id]).pl()
+
+
+def get_deputy_votes(deputado_id: str, n: int = 200) -> pl.DataFrame:
+    """Individual vote records for a deputy, most recent first."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                data_votacao,
+                proposicao_objeto,
+                descricao,
+                tipo_voto,
+                voto_afirmativo,
+                voto_negativo,
+                presente_sem_voto,
+                aprovacao,
+                partido_sigla_voto,
+                sigla_orgao
+            FROM main_marts.fct_votacao_deputado
+            WHERE deputado_id = ?
+            ORDER BY data_votacao DESC
+            LIMIT ?
+        """, [deputado_id, n]).pl()
+
+
+def get_deputy_expenses(deputado_id: str) -> pl.DataFrame:
+    """All CEAP expense records for a deputy, including NF and supplier CNPJ."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                data_documento,
+                ano,
+                mes,
+                tipo_despesa,
+                tipo_documento,
+                num_documento,
+                nome_fornecedor,
+                cnpj_cpf_fornecedor,
+                valor_documento,
+                valor_glosa,
+                valor_liquido,
+                num_ressarcimento,
+                url_documento
+            FROM main_marts.fct_despesa_deputado
+            WHERE deputado_id = ?
+            ORDER BY ano DESC, mes DESC, data_documento DESC
+        """, [deputado_id]).pl()
+
+
+def get_deputy_proposals(deputado_id: str, n: int = 500) -> pl.DataFrame:
+    """Legislative proposals authored by a deputy."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                proposicao_id,
+                sigla_tipo,
+                numero,
+                ano,
+                ementa,
+                data_apresentacao,
+                descricao_situacao,
+                regime_status,
+                sigla_orgao_status,
+                apreciacao,
+                url_inteiro_teor
+            FROM main_marts.fct_proposicao_deputado
+            WHERE deputado_id_autor = ?
+            ORDER BY ano DESC, data_apresentacao DESC
+            LIMIT ?
+        """, [deputado_id, n]).pl()
+
+
+def get_deputy_proposals_summary(deputado_id: str) -> pl.DataFrame:
+    """Proposals grouped by type and year for stacked bar chart."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                sigla_tipo,
+                COUNT(*) AS num_proposicoes
+            FROM main_marts.fct_proposicao_deputado
+            WHERE deputado_id_autor = ?
+            GROUP BY ano, sigla_tipo
+            ORDER BY ano, num_proposicoes DESC
+        """, [deputado_id]).pl()
+
+
+def get_deputy_emendas_kpis(deputado_id: str) -> dict:
+    """Lifetime emenda KPIs for a single deputy from fct_emenda_documento.deputado_id."""
+    with _con() as con:
+        row = con.execute("""
+            SELECT
+                count(distinct codigo_emenda)                                      AS num_emendas,
+                sum(CASE WHEN fase_despesa='Pagamento' THEN valor_pago END)        AS total_pago,
+                sum(CASE WHEN fase_despesa='Empenho'   THEN valor_empenhado END)   AS total_empenhado,
+                min(ano_emenda)                                                    AS ano_min,
+                max(ano_emenda)                                                    AS ano_max,
+                count(DISTINCT CASE WHEN fase_despesa='Pagamento'
+                    THEN municipio_recurso END)                                    AS municipios,
+                count(DISTINCT CASE WHEN fase_despesa='Pagamento'
+                    THEN codigo_favorecido END)                                    AS favorecidos
+            FROM main_marts.fct_emenda_documento
+            WHERE deputado_id = ?
+        """, [deputado_id]).fetchone()
+    return {
+        "num_emendas":     row[0] or 0,
+        "total_pago":      row[1] or 0.0,
+        "total_empenhado": row[2] or 0.0,
+        "ano_min":         row[3],
+        "ano_max":         row[4],
+        "municipios":      row[5] or 0,
+        "favorecidos":     row[6] or 0,
+    }
+
+
+def get_deputy_emendas_por_ano(deputado_id: str) -> pl.DataFrame:
+    """Emenda payment totals by year for a deputy."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano_emenda,
+                sum(valor_pago)               AS total_pago,
+                sum(valor_empenhado)          AS total_empenhado,
+                count(distinct codigo_emenda) AS num_emendas
+            FROM main_marts.fct_emenda_documento
+            WHERE deputado_id = ?
+              AND fase_despesa = 'Pagamento'
+            GROUP BY ano_emenda
+            ORDER BY ano_emenda
+        """, [deputado_id]).pl()
+
+
+def get_deputy_emendas_favorecidos(deputado_id: str, n: int = 15) -> pl.DataFrame:
+    """Top N beneficiaries of a deputy's emendas by total paid."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                favorecido,
+                codigo_favorecido,
+                tipo_favorecido,
+                municipio_favorecido,
+                uf_favorecido,
+                sum(valor_pago) AS total_pago,
+                count(*)        AS num_documentos
+            FROM main_marts.fct_emenda_documento
+            WHERE deputado_id = ?
+              AND fase_despesa = 'Pagamento'
+              AND favorecido IS NOT NULL
+            GROUP BY favorecido, codigo_favorecido, tipo_favorecido,
+                     municipio_favorecido, uf_favorecido
+            ORDER BY total_pago DESC
+            LIMIT ?
+        """, [deputado_id, n]).pl()
+
+
+def get_deputy_emendas_municipios(deputado_id: str) -> pl.DataFrame:
+    """Geographic distribution of a deputy's emenda payments by municipality."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                uf_recurso,
+                municipio_recurso,
+                codigo_ibge_municipio,
+                sum(valor_pago)               AS total_pago,
+                count(distinct codigo_emenda) AS num_emendas
+            FROM main_marts.fct_emenda_documento
+            WHERE deputado_id = ?
+              AND fase_despesa = 'Pagamento'
+              AND municipio_recurso IS NOT NULL
+              AND municipio_recurso NOT IN ('Sem informação', '-1')
+            GROUP BY uf_recurso, municipio_recurso, codigo_ibge_municipio
+            ORDER BY total_pago DESC
+        """, [deputado_id]).pl()
+
+
+def get_deputy_expenses_ranking(n: int = 20) -> pl.DataFrame:
+    """Top N deputies by total CEAP expense across all years."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                f.deputado_id,
+                COALESCE(ANY_VALUE(d.nome_parlamentar), ANY_VALUE(f.nome_parlamentar_dim)) AS nome_parlamentar,
+                ANY_VALUE(d.sigla_partido) AS sigla_partido,
+                ANY_VALUE(d.sigla_uf)     AS sigla_uf,
+                SUM(f.valor_liquido)       AS total_gasto,
+                COUNT(*)                   AS num_documentos
+            FROM main_marts.fct_despesa_deputado f
+            LEFT JOIN main_marts.dim_deputado d USING (deputado_id)
+            GROUP BY f.deputado_id
+            ORDER BY total_gasto DESC
+            LIMIT ?
+        """, [n]).pl()
+
+
 def get_senator_apoiamentos(senador_id: str) -> pl.DataFrame:
     """Commitments co-sponsored (apoiados) by a senator."""
     with _con() as con:
@@ -879,3 +1226,149 @@ def get_senator_apoiamentos(senador_id: str) -> pl.DataFrame:
             WHERE senador_id_apoiador = ?
             ORDER BY data_apoio DESC
         """, [senador_id]).pl()
+
+
+# ── New analysis queries ─────────────────────────────────────────────────────
+
+def get_remuneracao_distribuicao(ano: int, mes: int) -> pl.DataFrame:
+    """All individual staff salaries for a given month — used for box plot and outlier detection."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                sequencial,
+                nome,
+                vinculo,
+                cargo_nome,
+                lotacao_sigla,
+                remuneracao_liquida,
+                remuneracao_basica
+            FROM main_marts.fct_remuneracao_servidor
+            WHERE ano = ? AND mes = ? AND tipo_folha = 'Normal'
+              AND remuneracao_liquida IS NOT NULL
+            ORDER BY remuneracao_liquida DESC
+        """, [ano, mes]).pl()
+
+
+def get_ceaps_raw_receipts(ano: int | None = None) -> pl.DataFrame:
+    """Individual CEAPS receipt records for outlier detection.
+
+    Returns up to 5000 rows ordered by value descending so callers can compute
+    per-category medians and flag statistical outliers.
+    """
+    with _con() as con:
+        if ano is None:
+            return con.execute("""
+                SELECT
+                    c.senador_id,
+                    c.nome_senador,
+                    c.ano,
+                    c.mes,
+                    c.tipo_despesa,
+                    c.fornecedor,
+                    c.cnpj_cpf,
+                    c.data,
+                    c.valor_reembolsado
+                FROM main_marts.fct_ceaps c
+                WHERE c.valor_reembolsado > 0
+                ORDER BY c.valor_reembolsado DESC
+                LIMIT 5000
+            """).pl()
+        else:
+            return con.execute("""
+                SELECT
+                    c.senador_id,
+                    c.nome_senador,
+                    c.ano,
+                    c.mes,
+                    c.tipo_despesa,
+                    c.fornecedor,
+                    c.cnpj_cpf,
+                    c.data,
+                    c.valor_reembolsado
+                FROM main_marts.fct_ceaps c
+                WHERE c.ano = ? AND c.valor_reembolsado > 0
+                ORDER BY c.valor_reembolsado DESC
+                LIMIT 5000
+            """, [ano]).pl()
+
+
+def get_votacao_tramitacao() -> pl.DataFrame:
+    """Deliberation timeline per Senate bill: days between first and last plenário vote.
+
+    Groups fct_votacao by materia_identificacao to compute min/max vote dates.
+    Returns one row per bill, ordered by deliberation time (longest first).
+    """
+    with _con() as con:
+        return con.execute("""
+            WITH sessions AS (
+                SELECT
+                    codigo_sessao_votacao,
+                    sigla_materia,
+                    materia_identificacao,
+                    materia_ementa,
+                    resultado_votacao,
+                    MAX(data_sessao)           AS data_sessao,
+                    MAX(total_votos_sim)       AS total_votos_sim,
+                    MAX(total_votos_nao)       AS total_votos_nao
+                FROM main_marts.fct_votacao
+                GROUP BY codigo_sessao_votacao, sigla_materia,
+                         materia_identificacao, materia_ementa, resultado_votacao
+            )
+            SELECT
+                sigla_materia,
+                materia_identificacao,
+                MAX(materia_ementa)                                         AS materia_ementa,
+                COUNT(DISTINCT codigo_sessao_votacao)                       AS num_sessoes,
+                MIN(data_sessao)                                            AS primeira_sessao,
+                MAX(data_sessao)                                            AS ultima_sessao,
+                DATEDIFF('day', MIN(data_sessao), MAX(data_sessao))        AS dias_deliberacao,
+                LAST(resultado_votacao ORDER BY data_sessao)                AS resultado_final,
+                MAX(total_votos_sim)                                        AS max_sim,
+                MAX(total_votos_nao)                                        AS max_nao,
+                ABS(MAX(total_votos_sim) - MAX(total_votos_nao))           AS margem
+            FROM sessions
+            WHERE materia_identificacao IS NOT NULL
+              AND sigla_materia IS NOT NULL
+            GROUP BY sigla_materia, materia_identificacao
+            ORDER BY dias_deliberacao DESC
+        """).pl()
+
+
+def get_deputy_emendas_kpis_by_name(nome_parlamentar: str) -> dict:
+    """Fallback emenda KPIs for a deputy using name-based search.
+
+    Used when deputado_id linkage in dim_emenda returns no results.
+    Normalizes the name (uppercase, no accents via unaccent-style comparison)
+    and searches nome_autor_emenda with a LIKE pattern.
+    """
+    # Normalize: uppercase, strip extra spaces — DuckDB lacks unaccent, so use LIKE
+    nome_upper = nome_parlamentar.upper().strip()
+    # Use first two words of the parliamentary name as the LIKE pattern for robustness
+    words = nome_upper.split()
+    pattern = "%" + words[0] + "%" if words else "%"
+
+    with _con() as con:
+        row = con.execute("""
+            SELECT
+                count(distinct codigo_emenda)                                    AS num_emendas,
+                sum(CASE WHEN fase_despesa='Pagamento' THEN valor_pago END)     AS total_pago,
+                sum(CASE WHEN fase_despesa='Empenho'   THEN valor_empenhado END) AS total_empenhado,
+                min(ano_emenda)                                                  AS ano_min,
+                max(ano_emenda)                                                  AS ano_max,
+                count(DISTINCT CASE WHEN fase_despesa='Pagamento'
+                    THEN municipio_recurso END)                                  AS municipios,
+                count(DISTINCT CASE WHEN fase_despesa='Pagamento'
+                    THEN favorecido END)                                          AS favorecidos
+            FROM main_marts.fct_emenda_documento
+            WHERE UPPER(nome_autor_emenda) LIKE ?
+        """, [pattern]).fetchone()
+
+    return {
+        "num_emendas":     row[0] or 0,
+        "total_pago":      row[1] or 0.0,
+        "total_empenhado": row[2] or 0.0,
+        "ano_min":         row[3],
+        "ano_max":         row[4],
+        "municipios":      row[5] or 0,
+        "favorecidos":     row[6] or 0,
+    }

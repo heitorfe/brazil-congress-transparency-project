@@ -1,5 +1,4 @@
 import streamlit as st
-import plotly.express as px
 import polars as pl
 
 from queries import get_comissoes, get_comissao_membros
@@ -39,31 +38,16 @@ if sel_casa != "Todas":
     filtered = filtered.filter(pl.col("sigla_casa") == sel_casa)
 
 # ── KPIs ───────────────────────────────────────────────────────────────────
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Comissões ativas (filtro)", len(filtered))
-k2.metric("Total de membros atuais",  int(filtered["num_membros_atuais"].sum()))
-k3.metric("Titulares",                int(filtered["num_titulares"].sum()))
-k4.metric("Suplentes",                int(filtered["num_suplentes"].sum()))
+num_com = len(filtered)
+total_membros = int(filtered["num_membros_atuais"].sum())
+media_membros = round(total_membros / num_com, 1) if num_com > 0 else 0
 
-st.divider()
-
-# ── Type distribution chart ────────────────────────────────────────────────
-tipo_counts = (
-    filtered.group_by("descricao_tipo")
-    .agg(pl.len().alias("count"))
-    .sort("count", descending=True)
-)
-fig_tipo = px.bar(
-    tipo_counts.to_pandas(),
-    x="descricao_tipo",
-    y="count",
-    color="descricao_tipo",
-    labels={"descricao_tipo": "Tipo", "count": "Quantidade"},
-    title="Distribuição por tipo de comissão",
-    color_discrete_sequence=px.colors.qualitative.Set2,
-)
-fig_tipo.update_layout(showlegend=False, height=280, margin=dict(t=40, b=10))
-st.plotly_chart(fig_tipo, use_container_width=True)
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Comissões ativas (filtro)", num_com)
+k2.metric("Total de membros atuais", total_membros)
+k3.metric("Titulares", int(filtered["num_titulares"].sum()))
+k4.metric("Suplentes", int(filtered["num_suplentes"].sum()))
+k5.metric("Média membros / comissão", media_membros)
 
 st.divider()
 

@@ -17,6 +17,7 @@ from queries import (
     get_horas_extras_por_lotacao,
     get_remuneracoes_anos_disponiveis,
     get_remuneracoes_meses_disponiveis,
+    get_remuneracao_distribuicao,
 )
 
 st.set_page_config(
@@ -129,7 +130,7 @@ if not anos_disponiveis:
 # ── KPI Header ─────────────────────────────────────────────────────────────
 
 kpis = load_kpis()
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Servidores ativos", f"{kpis['num_servidores_ativos']:,}".replace(",", "."))
 c2.metric("Pensionistas", f"{kpis['num_pensionistas']:,}".replace(",", "."))
 c3.metric(
@@ -139,6 +140,11 @@ c3.metric(
 c4.metric(
     f"Horas extras ({MESES_PT_FULL.get(kpis['mes_ref'], '')} {kpis['ano_ref']})",
     _fmt_brl(kpis["total_horas_extras_mes"]),
+)
+c5.metric(
+    f"Remuneração média ({MESES_PT_FULL.get(kpis['mes_ref'], '')} {kpis['ano_ref']})",
+    _fmt_brl(kpis.get("avg_remuneracao_mes", 0)),
+    help="Média da remuneração líquida individual dos servidores (folha Normal)",
 )
 
 st.divider()
@@ -240,7 +246,6 @@ if not mensal_df.is_empty():
             line=dict(color="#74c476", width=2),
         ))
         fig_mensal.update_layout(
-            title=f"Folha mensal em {ano_sel}",
             xaxis_title="Mês",
             yaxis_title="Total (R$)",
             yaxis_tickformat=",.0f",
@@ -329,7 +334,7 @@ if not top_df.is_empty():
     fig_top.update_layout(
         yaxis=dict(categoryorder="total ascending"),
         xaxis_tickformat=",.0f",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        showlegend=False,
     )
     st.plotly_chart(fig_top, use_container_width=True)
 
@@ -418,6 +423,104 @@ if not top_df.is_empty():
         st.dataframe(display, use_container_width=True, hide_index=True)
 else:
     st.info(f"Sem dados de remuneração para {MESES_PT_FULL.get(mes_sel)}/{ano_sel}.")
+
+st.divider()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# DISTRIBUIÇÃO SALARIAL E OUTLIERS
+# ══════════════════════════════════════════════════════════════════════════
+
+st.header(f"📊 Distribuição Salarial e Outliers — {MESES_PT_FULL.get(mes_sel)}/{ano_sel}")
+st.caption(
+    "Distribuição das remunerações líquidas por tipo de vínculo. "
+    "Pontos além dos bigodes do box plot indicam valores estatisticamente fora da curva."
+)
+
+@st.cache_data(ttl=3600)
+def load_distribuicao(ano: int, mes: int):
+    return get_remuneracao_distribuicao(ano, mes)
+
+dist_df = load_distribuicao(ano_sel, mes_sel)
+
+if not dist_df.is_empty():
+    dist_pd = dist_df.with_columns(
+        pl.col("vinculo").replace(VINCULO_LABELS)
+    ).to_pandas()
+
+    fig_box = px.box(
+        dist_pd,
+        x="vinculo",
+        y="remuneracao_liquida",
+        color="vinculo",
+        color_discrete_map={VINCULO_LABELS.get(k, k): c for k, c in VINCULO_COLORS.items()},
+        labels={"vinculo": "Vínculo", "remuneracao_liquida": "Remuneração Líquida (R$)"},
+        points="outliers",
+        hover_data=["nome", "cargo_nome", "lotacao_sigla"],
+    )
+    fig_box.update_layout(
+        showlegend=False,
+        height=420,
+        margin=dict(t=20, b=10),
+        yaxis=dict(tickprefix="R$ ", tickformat=",.0f"),
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
+
+    # IQR-based outlier detection per vínculo group
+    st.subheader("Servidores estatisticamente fora da curva (> Q3 + 1,5 × IQR por vínculo)")
+    st.caption(
+        "Servidores cujo salário líquido supera o limite superior do intervalo interquartil "
+        "do seu grupo de vínculo. Alta remuneração pode ser legítima (cargo de liderança, "
+        "acumulação de funções) — use como ponto de partida para investigação."
+    )
+
+    outlier_rows = []
+    for vinculo_val in dist_df["vinculo"].unique().to_list():
+        grupo = dist_df.filter(pl.col("vinculo") == vinculo_val)
+        if len(grupo) < 4:
+            continue
+        q1 = grupo["remuneracao_liquida"].quantile(0.25)
+        q3 = grupo["remuneracao_liquida"].quantile(0.75)
+        iqr = q3 - q1
+        limite = q3 + 1.5 * iqr
+        mediana = grupo["remuneracao_liquida"].median()
+        outliers = grupo.filter(pl.col("remuneracao_liquida") > limite).with_columns(
+            pl.lit(vinculo_val).alias("vinculo_raw"),
+            pl.lit(float(mediana)).alias("mediana_grupo"),
+            pl.lit(float(limite)).alias("limite_iqr"),
+            (pl.col("remuneracao_liquida") - pl.lit(float(mediana))).alias("desvio_mediana"),
+        )
+        outlier_rows.append(outliers)
+
+    if outlier_rows:
+        outliers_df = pl.concat(outlier_rows).sort("remuneracao_liquida", descending=True)
+        display_out = outliers_df.select([
+            pl.col("nome").alias("Nome"),
+            pl.col("cargo_nome").alias("Cargo"),
+            pl.col("vinculo_raw").replace(VINCULO_LABELS).alias("Vínculo"),
+            pl.col("lotacao_sigla").alias("Lotação"),
+            pl.col("remuneracao_liquida").map_elements(
+                lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                return_dtype=pl.Utf8,
+            ).alias("Salário Líquido"),
+            pl.col("mediana_grupo").map_elements(
+                lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                return_dtype=pl.Utf8,
+            ).alias("Mediana do grupo"),
+            pl.col("desvio_mediana").map_elements(
+                lambda v: f"+ R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                return_dtype=pl.Utf8,
+            ).alias("Acima da mediana"),
+        ])
+        st.dataframe(display_out, use_container_width=True, hide_index=True)
+        st.caption(
+            f"{len(outliers_df)} servidor(es) identificado(s) como outlier(s) "
+            f"em {MESES_PT_FULL.get(mes_sel)}/{ano_sel}."
+        )
+    else:
+        st.success("Nenhum outlier salarial identificado para o mês selecionado.")
+else:
+    st.info(f"Sem dados de distribuição salarial para {MESES_PT_FULL.get(mes_sel)}/{ano_sel}.")
 
 st.divider()
 

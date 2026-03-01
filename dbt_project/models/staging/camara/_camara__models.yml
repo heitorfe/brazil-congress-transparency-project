@@ -1,0 +1,82 @@
+version: 2
+
+models:
+  - name: stg_camara__deputados
+    description: >
+      Biographical detail per unique deputy. Grain: 1 row per deputado_id.
+      Source: camara_deputados.parquet (GET /deputados/{id}).
+    columns:
+      - name: deputado_id
+        description: "Unique deputy identifier (string cast of the API integer id)."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_camara__deputados_lista
+    description: >
+      Deputy list per legislature — records which legislatures each deputy participated in.
+      Grain: 1 row per deputado_id × id_legislatura.
+      Source: camara_deputados_lista.parquet (GET /deputados?idLegislatura={n}).
+    columns:
+      - name: deputado_id
+        description: "Deputy identifier."
+        data_tests:
+          - not_null
+      - name: id_legislatura
+        description: "Legislature number (e.g. 56, 57)."
+        data_tests:
+          - not_null
+
+  - name: stg_camara__despesas
+    description: >
+      CEAP expense records for deputies. Grain: 1 row per expense document.
+      Source: camara_despesas.parquet (GET /deputados/{id}/despesas).
+    columns:
+      - name: cod_documento
+        description: "Unique expense document code."
+        data_tests:
+          - not_null
+      - name: deputado_id
+        description: "FK to stg_camara__deputados.deputado_id."
+        data_tests:
+          - not_null
+
+  - name: stg_camara__proposicoes
+    description: >
+      Legislative proposals authored by deputies.
+      Grain: 1 row per proposicao_id × deputado_id_autor.
+      Source: camara_proposicoes.parquet (GET /proposicoes?idDeputadoAutor={id}).
+    columns:
+      - name: proposicao_id
+        description: "Proposal identifier."
+        data_tests:
+          - not_null
+      - name: deputado_id_autor
+        description: "Author deputy ID. FK to stg_camara__deputados.deputado_id."
+        data_tests:
+          - not_null
+
+  - name: stg_camara__votacoes
+    description: >
+      Plenary voting session metadata. Grain: 1 row per votacao_id.
+      Source: camara_votacoes.parquet (GET /votacoes).
+    columns:
+      - name: votacao_id
+        description: "Unique voting session identifier (e.g. '2430642-33')."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_camara__votos
+    description: >
+      Individual deputy votes. Grain: 1 row per deputado_id × votacao_id.
+      Source: camara_votos.parquet (GET /votacoes/{id}/votos).
+    columns:
+      - name: votacao_id
+        description: "FK to stg_camara__votacoes.votacao_id."
+        data_tests:
+          - not_null
+      - name: deputado_id
+        description: "FK to stg_camara__deputados.deputado_id."
+        data_tests:
+          - not_null
