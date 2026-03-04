@@ -1372,3 +1372,181 @@ def get_deputy_emendas_kpis_by_name(nome_parlamentar: str) -> dict:
         "municipios":      row[5] or 0,
         "favorecidos":     row[6] or 0,
     }
+
+
+# ── CEAPS Bulk (Senate, 2008–present) ──────────────────────────────────────
+
+def get_ceaps_bulk_summary_by_year() -> pl.DataFrame:
+    """Total Senate CEAPS spending per year — bulk CSV source (2008–present)."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                CAST(SUM(valor_reembolsado) AS DOUBLE)  AS total_gasto,
+                COUNT(DISTINCT senador_id)               AS num_senadores,
+                COUNT(*)                                 AS num_recibos
+            FROM main_marts.fct_ceaps_bulk
+            WHERE valor_reembolsado > 0
+            GROUP BY ano
+            ORDER BY ano
+        """).pl()
+
+
+def get_ceaps_bulk_all_senators() -> pl.DataFrame:
+    """Total Senate CEAPS spending per senator (all years) — for ranking."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                COALESCE(nome_parlamentar_dim, senador_nome)    AS nome_parlamentar,
+                partido_sigla_dim                               AS partido_sigla,
+                estado_sigla_dim                                AS estado_sigla,
+                CAST(SUM(valor_reembolsado) AS DOUBLE)          AS total_gasto,
+                COUNT(*)                                        AS num_recibos,
+                senador_id
+            FROM main_marts.fct_ceaps_bulk
+            WHERE valor_reembolsado > 0
+            GROUP BY senador_id, nome_parlamentar_dim, senador_nome,
+                     partido_sigla_dim, estado_sigla_dim
+            ORDER BY total_gasto DESC
+        """).pl()
+
+
+def get_ceaps_bulk_top_categories(n: int = 12) -> pl.DataFrame:
+    """Top N Senate CEAPS expense categories across all years."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                tipo_despesa,
+                CAST(SUM(valor_reembolsado) AS DOUBLE)  AS total_gasto,
+                COUNT(*)                                 AS num_recibos
+            FROM main_marts.fct_ceaps_bulk
+            WHERE valor_reembolsado > 0
+            GROUP BY tipo_despesa
+            ORDER BY total_gasto DESC
+            LIMIT ?
+        """, [n]).pl()
+
+
+def get_ceaps_bulk_categories_by_year() -> pl.DataFrame:
+    """Senate CEAPS spending by category and year — for stacked trend chart."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                tipo_despesa,
+                CAST(SUM(valor_reembolsado) AS DOUBLE)  AS total_gasto
+            FROM main_marts.fct_ceaps_bulk
+            WHERE valor_reembolsado > 0
+            GROUP BY ano, tipo_despesa
+            ORDER BY ano, total_gasto DESC
+        """).pl()
+
+
+def get_ceaps_bulk_raw_receipts(ano: int | None = None) -> pl.DataFrame:
+    """Individual Senate CEAPS receipt records for outlier detection (bulk source).
+
+    Returns up to 5000 rows ordered by value descending.
+    """
+    with _con() as con:
+        if ano is None:
+            return con.execute("""
+                SELECT
+                    senador_id,
+                    COALESCE(nome_parlamentar_dim, senador_nome) AS nome_senador,
+                    ano,
+                    mes,
+                    tipo_despesa,
+                    fornecedor,
+                    cnpj_cpf,
+                    data,
+                    valor_reembolsado
+                FROM main_marts.fct_ceaps_bulk
+                WHERE valor_reembolsado > 0
+                ORDER BY valor_reembolsado DESC
+                LIMIT 5000
+            """).pl()
+        else:
+            return con.execute("""
+                SELECT
+                    senador_id,
+                    COALESCE(nome_parlamentar_dim, senador_nome) AS nome_senador,
+                    ano,
+                    mes,
+                    tipo_despesa,
+                    fornecedor,
+                    cnpj_cpf,
+                    data,
+                    valor_reembolsado
+                FROM main_marts.fct_ceaps_bulk
+                WHERE ano = ? AND valor_reembolsado > 0
+                ORDER BY valor_reembolsado DESC
+                LIMIT 5000
+            """, [ano]).pl()
+
+
+# ── CEAP Bulk (Chamber, 2009–present) ──────────────────────────────────────
+
+def get_ceap_camara_bulk_summary_by_year() -> pl.DataFrame:
+    """Total Chamber CEAP spending per year — bulk CSV source (2009–present)."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                CAST(SUM(valor_liquido) AS DOUBLE)  AS total_gasto,
+                COUNT(DISTINCT deputado_id)          AS num_deputados,
+                COUNT(*)                             AS num_recibos
+            FROM main_marts.fct_ceap_camara_bulk
+            WHERE valor_liquido > 0
+            GROUP BY ano
+            ORDER BY ano
+        """).pl()
+
+
+def get_ceap_camara_bulk_all_deputies() -> pl.DataFrame:
+    """Total Chamber CEAP spending per deputy (all years) — for ranking."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                deputado_id,
+                COALESCE(nome_parlamentar_dim, nome_parlamentar)    AS nome_parlamentar,
+                partido_sigla_dim                                    AS partido_sigla,
+                estado_sigla_dim                                     AS estado_sigla,
+                CAST(SUM(valor_liquido) AS DOUBLE)                   AS total_gasto,
+                COUNT(*)                                             AS num_recibos
+            FROM main_marts.fct_ceap_camara_bulk
+            WHERE valor_liquido > 0
+            GROUP BY deputado_id, nome_parlamentar_dim, nome_parlamentar,
+                     partido_sigla_dim, estado_sigla_dim
+            ORDER BY total_gasto DESC
+        """).pl()
+
+
+def get_ceap_camara_bulk_top_categories(n: int = 12) -> pl.DataFrame:
+    """Top N Chamber CEAP expense categories across all years."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                tipo_despesa,
+                CAST(SUM(valor_liquido) AS DOUBLE)  AS total_gasto,
+                COUNT(*)                             AS num_recibos
+            FROM main_marts.fct_ceap_camara_bulk
+            WHERE valor_liquido > 0
+            GROUP BY tipo_despesa
+            ORDER BY total_gasto DESC
+            LIMIT ?
+        """, [n]).pl()
+
+
+def get_ceap_camara_bulk_categories_by_year() -> pl.DataFrame:
+    """Chamber CEAP spending by category and year — for stacked trend chart."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                tipo_despesa,
+                CAST(SUM(valor_liquido) AS DOUBLE)  AS total_gasto
+            FROM main_marts.fct_ceap_camara_bulk
+            WHERE valor_liquido > 0
+            GROUP BY ano, tipo_despesa
+            ORDER BY ano, total_gasto DESC
+        """).pl()
