@@ -181,81 +181,141 @@ else:
 
 st.divider()
 
-# ── Senator table ──────────────────────────────────────────────────────────
-st.subheader("Senadores em exercício")
+# ── Parlamentares em exercício (tabbed) ────────────────────────────────────
+st.subheader("Parlamentares em exercício")
 st.caption(
-    "Clique em uma linha para abrir o perfil completo do senador. "
+    "Clique em uma linha para abrir o perfil completo do parlamentar. "
     "Use os filtros para explorar por partido, estado ou sexo."
 )
 
-col1, col2, col3, col4 = st.columns(4)
+tab_sen, tab_dep = st.tabs(["🏛️ Senadores (81)", "🏛️ Deputados (513)"])
 
-partidos = sorted(df["partido_sigla"].drop_nulls().unique().to_list())
-estados  = sorted(df["estado_sigla"].drop_nulls().unique().to_list())
+# ── Tab: Senadores ──────────────────────────────────────────────────────────
+with tab_sen:
+    col1, col2, col3, col4 = st.columns(4)
 
-sel_partidos    = col1.multiselect("Partido", partidos)
-sel_estados     = col2.multiselect("Estado (UF)", estados)
-sel_sexo        = col3.selectbox("Sexo", ["Todos", "Masculino", "Feminino"])
-sel_reeleicao   = col4.checkbox("Apenas possíveis candidatos à reeleição 2026")
+    partidos = sorted(df["partido_sigla"].drop_nulls().unique().to_list())
+    estados  = sorted(df["estado_sigla"].drop_nulls().unique().to_list())
 
-filtered = df
-if sel_partidos:
-    filtered = filtered.filter(pl.col("partido_sigla").is_in(sel_partidos))
-if sel_estados:
-    filtered = filtered.filter(pl.col("estado_sigla").is_in(sel_estados))
-if sel_sexo != "Todos":
-    filtered = filtered.filter(pl.col("sexo") == sel_sexo)
-if sel_reeleicao:
-    filtered = filtered.filter(
-        pl.col("mandato_fim").cast(pl.Utf8).str.slice(0, 4).is_in(["2026", "2027"])
+    sel_partidos  = col1.multiselect("Partido", partidos, key="sen_partido")
+    sel_estados   = col2.multiselect("Estado (UF)", estados, key="sen_estado")
+    sel_sexo      = col3.selectbox("Sexo", ["Todos", "Masculino", "Feminino"], key="sen_sexo")
+    sel_reeleicao = col4.checkbox("Apenas possíveis candidatos à reeleição 2026")
+
+    filtered = df
+    if sel_partidos:
+        filtered = filtered.filter(pl.col("partido_sigla").is_in(sel_partidos))
+    if sel_estados:
+        filtered = filtered.filter(pl.col("estado_sigla").is_in(sel_estados))
+    if sel_sexo != "Todos":
+        filtered = filtered.filter(pl.col("sexo") == sel_sexo)
+    if sel_reeleicao:
+        filtered = filtered.filter(
+            pl.col("mandato_fim").cast(pl.Utf8).str.slice(0, 4).is_in(["2026", "2027"])
+        )
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Senadores (filtro)", len(filtered))
+    m2.metric("Partidos", filtered["partido_sigla"].n_unique())
+    m3.metric("Estados", filtered["estado_sigla"].n_unique())
+    m4.metric("Senadoras", len(filtered.filter(pl.col("sexo") == "Feminino")))
+
+    display = filtered.with_columns(
+        pl.when(pl.col("mandato_fim").cast(pl.Utf8).str.slice(0, 4).is_in(["2026", "2027"]))
+        .then(pl.lit("Sim"))
+        .otherwise(pl.lit("—"))
+        .alias("reeleicao_2026")
+    ).select([
+        "nome_parlamentar",
+        "partido_sigla",
+        "estado_sigla",
+        "sexo",
+        "mandato_inicio",
+        "mandato_fim",
+        "descricao_participacao",
+        "reeleicao_2026",
+    ]).rename({
+        "nome_parlamentar":      "Nome",
+        "partido_sigla":         "Partido",
+        "estado_sigla":          "UF",
+        "sexo":                  "Sexo",
+        "mandato_inicio":        "Início do mandato",
+        "mandato_fim":           "Fim do mandato",
+        "descricao_participacao":"Participação",
+        "reeleicao_2026":        "🗳️ Poss. reeleição 2026",
+    })
+
+    sen_selection = st.dataframe(
+        display,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
     )
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Senadores (filtro)", len(filtered))
-m2.metric("Partidos", filtered["partido_sigla"].n_unique())
-m3.metric("Estados", filtered["estado_sigla"].n_unique())
-m4.metric("Senadoras", len(filtered.filter(pl.col("sexo") == "Feminino")))
+    selected_rows = sen_selection.selection.rows
+    if selected_rows:
+        idx = selected_rows[0]
+        senator_id = filtered["senador_id"][idx]
+        st.session_state["selected_senator_id"] = senator_id
+        st.switch_page("pages/1_Perfil_do_Senador.py")
 
-display = filtered.with_columns(
-    pl.when(pl.col("mandato_fim").cast(pl.Utf8).str.slice(0, 4).is_in(["2026", "2027"]))
-    .then(pl.lit("Sim"))
-    .otherwise(pl.lit("—"))
-    .alias("reeleicao_2026")
-).select([
-    "nome_parlamentar",
-    "partido_sigla",
-    "estado_sigla",
-    "sexo",
-    "mandato_inicio",
-    "mandato_fim",
-    "descricao_participacao",
-    "reeleicao_2026",
-]).rename({
-    "nome_parlamentar":      "Nome",
-    "partido_sigla":         "Partido",
-    "estado_sigla":          "UF",
-    "sexo":                  "Sexo",
-    "mandato_inicio":        "Início do mandato",
-    "mandato_fim":           "Fim do mandato",
-    "descricao_participacao":"Participação",
-    "reeleicao_2026":        "🗳️ Poss. reeleição 2026",
-})
+# ── Tab: Deputados ──────────────────────────────────────────────────────────
+with tab_dep:
+    dcol1, dcol2, dcol3 = st.columns(3)
 
-selection = st.dataframe(
-    display,
-    use_container_width=True,
-    hide_index=True,
-    on_select="rerun",
-    selection_mode="single-row",
-)
+    dep_partidos = sorted(dep_ativos["sigla_partido"].drop_nulls().unique().to_list())
+    dep_estados  = sorted(dep_ativos["sigla_uf"].drop_nulls().unique().to_list())
 
-# ── Navigate to profile on row click ───────────────────────────────────────
-selected_rows = selection.selection.rows
-if selected_rows:
-    idx = selected_rows[0]
-    senator_id = filtered["senador_id"][idx]
-    st.session_state["selected_senator_id"] = senator_id
-    st.switch_page("pages/1_Perfil_do_Senador.py")
+    sel_dep_partido = dcol1.multiselect("Partido", dep_partidos, key="dep_partido")
+    sel_dep_estado  = dcol2.multiselect("Estado (UF)", dep_estados, key="dep_estado")
+    sel_dep_sexo    = dcol3.selectbox("Sexo", ["Todos", "Masculino", "Feminino"], key="dep_sexo")
+
+    dep_filtered = dep_ativos
+    if sel_dep_partido:
+        dep_filtered = dep_filtered.filter(pl.col("sigla_partido").is_in(sel_dep_partido))
+    if sel_dep_estado:
+        dep_filtered = dep_filtered.filter(pl.col("sigla_uf").is_in(sel_dep_estado))
+    if sel_dep_sexo == "Masculino":
+        dep_filtered = dep_filtered.filter(pl.col("sexo") == "M")
+    elif sel_dep_sexo == "Feminino":
+        dep_filtered = dep_filtered.filter(pl.col("sexo") == "F")
+
+    dm1, dm2, dm3, dm4 = st.columns(4)
+    dm1.metric("Deputados (filtro)", len(dep_filtered))
+    dm2.metric("Partidos", dep_filtered["sigla_partido"].n_unique())
+    dm3.metric("Estados", dep_filtered["sigla_uf"].n_unique())
+    dm4.metric("Deputadas", len(dep_filtered.filter(pl.col("sexo") == "F")))
+
+    dep_display = dep_filtered.select([
+        "deputado_id",
+        "nome_parlamentar",
+        "sigla_partido",
+        "sigla_uf",
+        "sexo",
+        "situacao",
+    ]).rename({
+        "nome_parlamentar": "Nome",
+        "sigla_partido":    "Partido",
+        "sigla_uf":         "UF",
+        "sexo":             "Sexo",
+        "situacao":         "Situação",
+    })
+
+    dep_selection = st.dataframe(
+        dep_display.drop("deputado_id"),
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    dep_selected_rows = dep_selection.selection.rows
+    if dep_selected_rows:
+        idx = dep_selected_rows[0]
+        deputy_id = dep_filtered["deputado_id"][idx]
+        st.session_state["selected_deputy_id"] = deputy_id
+        st.switch_page("pages/2_Perfil_do_Deputado.py")
 
 st.caption(
     "Fontes: API de Dados Abertos do Senado Federal — legis.senado.leg.br/dadosabertos · "
