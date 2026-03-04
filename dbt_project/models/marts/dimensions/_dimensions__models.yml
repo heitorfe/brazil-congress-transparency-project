@@ -198,6 +198,46 @@ models:
       - name: lotacao_nome
         description: "Full name of the organizational unit"
 
+  - name: dim_candidato
+    description: "One row per (sq_candidato, ano_eleicao) — TSE electoral candidacy records from 2018+ elections. The same person running in multiple elections has a different sq_candidato each time. Joined to dim_senador/dim_deputado via normalized nome_urna."
+    columns:
+      - name: sq_candidato
+        description: "TSE sequential candidate ID — unique within an election year (composite PK with ano_eleicao)"
+        data_tests:
+          - not_null
+
+      - name: ano_eleicao
+        description: "Election year (composite PK with sq_candidato)"
+        data_tests:
+          - not_null
+
+      - name: nome_candidato
+        description: "Candidate's full legal name as registered at TSE"
+        data_tests:
+          - not_null
+
+      - name: cargo
+        description: "Office being sought (SENADOR, DEPUTADO FEDERAL, VEREADOR, PREFEITO, etc.)"
+        data_tests:
+          - not_null
+
+      - name: uf
+        description: "State where the candidacy was registered"
+        data_tests:
+          - not_null
+
+      - name: eleito
+        description: "True when the candidate was elected (situacao_turno starts with ELEITO)"
+
+      - name: senador_id
+        description: "Senator code (FK → dim_senador) — linked via normalized nome_urna; NULL for non-senators or unmatched names"
+
+      - name: deputado_id
+        description: "Deputy code (FK → dim_deputado) — linked via normalized nome_urna when no senator match; NULL otherwise"
+
+      - name: cpf_raw
+        description: "Candidate CPF — NULL when TSE masked it (sentinel used in 2024 election); kept for future CPF-based join enrichment"
+
   - name: dim_pensionista
     description: "One row per Senate pensioner — current snapshot from /api/v1/servidores/pensionistas"
     columns:

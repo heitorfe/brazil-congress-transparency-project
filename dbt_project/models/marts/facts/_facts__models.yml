@@ -232,3 +232,36 @@ models:
 
       - name: valor_pago
         description: "Total paid amount in BRL"
+
+  - name: fct_doacao_eleitoral
+    description: "One row per campaign donation receipt — TSE prestação de contas (2018+ elections). Joins to dim_candidato for denormalized candidate attributes."
+    columns:
+      - name: donation_id
+        description: "Stable SHA256[:16] ID built from composite key (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: sq_candidato
+        description: "TSE sequential candidate ID (FK → dim_candidato)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Election year"
+        data_tests:
+          - not_null
+
+      - name: valor_receita
+        description: "Donation amount in BRL — parsed from BRL locale string"
+        data_tests:
+          - not_null
+
+      - name: tipo_doador
+        description: "Donor classification: CPF (individual), CNPJ (corporate), or unknown"
+
+      - name: senador_id
+        description: "Senator code (FK → dim_senador) — NULL when candidate is not a current senator"
+
+      - name: deputado_id
+        description: "Deputy code (FK → dim_deputado) — NULL when candidate is not a current deputy"

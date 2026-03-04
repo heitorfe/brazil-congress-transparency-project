@@ -1550,3 +1550,140 @@ def get_ceap_camara_bulk_categories_by_year() -> pl.DataFrame:
             GROUP BY ano, tipo_despesa
             ORDER BY ano, total_gasto DESC
         """).pl()
+
+
+# ── Phase 4B: TSE Electoral Financing ────────────────────────────────────────
+
+
+def get_tse_donation_summary_by_year() -> pl.DataFrame:
+    """Total campaign donations per election year — for the overview bar chart.
+
+    Returns: ano, total_arrecadado, num_candidatos, num_doacoes
+    """
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano,
+                CAST(SUM(total_arrecadado) AS DOUBLE)   AS total_arrecadado,
+                COUNT(DISTINCT sq_candidato)             AS num_candidatos,
+                SUM(num_doacoes)                         AS num_doacoes
+            FROM main_marts.agg_doacao_por_candidato
+            GROUP BY ano
+            ORDER BY ano
+        """).pl()
+
+
+def get_tse_top_candidates(
+    year: int | None = None,
+    cargo: str | None = None,
+    n: int = 30,
+) -> pl.DataFrame:
+    """Top candidates by total campaign donations.
+
+    Returns: sq_candidato, nome_candidato, cargo, uf, partido_sigla,
+             eleito, senador_id, deputado_id, total_arrecadado, num_doacoes, num_doadores
+    """
+    filters = []
+    if year is not None:
+        filters.append(f"ano = {year}")
+    if cargo is not None:
+        filters.append(f"upper(trim(cargo)) = upper(trim('{cargo}'))")
+    where = ("WHERE " + " AND ".join(filters)) if filters else ""
+
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                sq_candidato,
+                nome_candidato,
+                cargo,
+                candidato_uf                            AS uf,
+                partido_sigla,
+                eleito,
+                senador_id,
+                deputado_id,
+                CAST(SUM(total_arrecadado) AS DOUBLE)   AS total_arrecadado,
+                SUM(num_doacoes)                         AS num_doacoes,
+                SUM(num_doadores)                        AS num_doadores
+            FROM main_marts.agg_doacao_por_candidato
+            {where}
+            GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+            ORDER BY total_arrecadado DESC
+            LIMIT {n}
+        """).pl()
+
+
+def get_tse_top_donors(year: int | None = None, n: int = 20) -> pl.DataFrame:
+    """Top donors by total amount donated.
+
+    Aggregates fct_doacao_eleitoral by donor CPF/CNPJ.
+    Returns: cpf_cnpj_doador_raw, nome_doador, nome_doador_rfb, tipo_doador,
+             cnae_descricao, total_doado, num_candidatos, num_doacoes
+    """
+    where = f"WHERE ano = {year}" if year is not None else ""
+
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                cpf_cnpj_doador_raw,
+                COALESCE(nome_doador_rfb, nome_doador)  AS nome_doador,
+                tipo_doador,
+                cnae_descricao,
+                CAST(SUM(valor_receita) AS DOUBLE)      AS total_doado,
+                COUNT(DISTINCT sq_candidato)             AS num_candidatos,
+                COUNT(*)                                 AS num_doacoes
+            FROM main_marts.fct_doacao_eleitoral
+            {where}
+            WHERE cpf_cnpj_doador_raw IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+            ORDER BY total_doado DESC
+            LIMIT {n}
+        """).pl()
+
+
+def get_tse_senators_with_donations() -> pl.DataFrame:
+    """Current senators who appear as TSE candidates — with their donation totals.
+
+    Joins dim_senador to agg_doacao_por_candidato via the senador_id linkage built
+    in dim_candidato. Useful for the cross-reference Cruzamento tab.
+    Returns: senador_id, nome_parlamentar, partido_sigla, estado_sigla,
+             ano, total_arrecadado, num_doacoes, eleito
+    """
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                s.senador_id,
+                s.nome_parlamentar,
+                s.partido_sigla,
+                s.estado_sigla,
+                a.ano,
+                CAST(a.total_arrecadado AS DOUBLE)  AS total_arrecadado,
+                a.num_doacoes,
+                a.eleito
+            FROM main_marts.agg_doacao_por_candidato a
+            JOIN main_marts.dim_senador s
+                ON s.senador_id = a.senador_id
+            WHERE a.senador_id IS NOT NULL
+            ORDER BY s.nome_parlamentar, a.ano
+        """).pl()
+
+
+def get_tse_donation_origin_breakdown(year: int | None = None) -> pl.DataFrame:
+    """Campaign donations broken down by origem_receita (source type).
+
+    Returns: ano, origem_receita, tipo_doador, total_doado, num_doacoes
+    """
+    where = f"WHERE ano = {year}" if year is not None else ""
+
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                ano,
+                COALESCE(origem_receita, 'Não informado')   AS origem_receita,
+                tipo_doador,
+                CAST(SUM(valor_receita) AS DOUBLE)          AS total_doado,
+                COUNT(*)                                     AS num_doacoes
+            FROM main_marts.fct_doacao_eleitoral
+            {where}
+            GROUP BY ano, origem_receita, tipo_doador
+            ORDER BY ano, total_doado DESC
+        """).pl()

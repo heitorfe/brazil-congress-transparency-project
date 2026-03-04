@@ -27,6 +27,8 @@ models:
         +tags: ['transparencia']
       camara:
         +tags: ['camara']
+      tse:
+        +tags: ['tse']
     marts:
       +schema: marts
       +materialized: table

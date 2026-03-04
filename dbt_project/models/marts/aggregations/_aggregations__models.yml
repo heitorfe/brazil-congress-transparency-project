@@ -108,3 +108,33 @@ models:
 
       - name: total_horas_extras_valor
         description: "Sum of overtime component embedded in the payroll (not from fct_hora_extra)"
+
+  - name: agg_doacao_por_candidato
+    description: "Pre-aggregated campaign donation totals per (sq_candidato, ano) — used directly by the Financiamento Eleitoral dashboard to avoid scanning 800K+ fact rows at render time."
+    columns:
+      - name: sq_candidato
+        description: "TSE sequential candidate ID (composite PK with ano)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Election year (composite PK with sq_candidato)"
+        data_tests:
+          - not_null
+
+      - name: total_arrecadado
+        description: "Total donations received in BRL — CAST to DOUBLE for serialization"
+        data_tests:
+          - not_null
+
+      - name: num_doacoes
+        description: "Count of donation receipts"
+
+      - name: num_doadores
+        description: "Count of distinct donor CPF/CNPJ values"
+
+      - name: total_pessoa_juridica
+        description: "Total from corporate donors (CNPJ) in BRL"
+
+      - name: total_pessoa_fisica
+        description: "Total from individual donors (CPF) in BRL"

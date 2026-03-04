@@ -19,3 +19,8 @@ CAMARA_DEFAULT_START_YEAR = 2019
 # Bulk CSV historical extractors (Phase 4A)
 CEAPS_BULK_START_YEAR = 2008   # Senate CEAPS bulk CSV available from 2008
 CEAP_CAMARA_START_YEAR = 2009  # Chamber CEAP bulk ZIP available from 2009
+
+# TSE Electoral Data (Phase 4B) — 2018+ URL/format era only
+TSE_CDN_BASE = "https://cdn.tse.jus.br/estatistica/sead/odsele"
+TSE_ELECTION_YEARS = [2018, 2022, 2024]  # 2018 & 2022 = federal; 2024 = municipal
+MASKED_CPF_SENTINEL = "-4"               # TSE 2024 masks all candidate CPFs as "-4"

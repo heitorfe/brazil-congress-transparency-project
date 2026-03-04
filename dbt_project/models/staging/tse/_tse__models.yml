@@ -1,0 +1,76 @@
+version: 2
+
+models:
+  - name: stg_tse__candidatos
+    description: "One row per candidate per election year — TSE candidate registrations (2018+ format era). sq_candidato is unique within an election year but changes across elections for the same person."
+    columns:
+      - name: sq_candidato
+        description: "TSE sequential candidate ID — PK within an election year"
+        data_tests:
+          - not_null
+
+      - name: ano_eleicao
+        description: "Election year (2018, 2022 = federal; 2024 = municipal)"
+        data_tests:
+          - not_null
+
+      - name: nome_candidato
+        description: "Candidate's full legal name as registered at TSE"
+        data_tests:
+          - not_null
+
+      - name: nome_urna
+        description: "Ballot name used on the voting machine — typically matches parliamentary name"
+
+      - name: cargo
+        description: "Office being sought (SENADOR, DEPUTADO FEDERAL, VEREADOR, PREFEITO, etc.)"
+        data_tests:
+          - not_null
+
+      - name: uf
+        description: "State where the candidacy was registered"
+        data_tests:
+          - not_null
+
+      - name: partido_sigla
+        description: "Party abbreviation at the time of registration"
+
+      - name: situacao_turno
+        description: "Final election result (ELEITO, NÃO ELEITO, ELEITO POR MÉDIA, etc.)"
+
+      - name: eleito
+        description: "True when situacao_turno starts with 'ELEITO'"
+
+      - name: cpf_raw
+        description: "Candidate CPF — NULL when TSE masked it (sentinel '-4', used in 2024)"
+
+  - name: stg_tse__doacoes
+    description: "One row per campaign donation receipt — TSE prestação de contas (2018+ format era). BRL values parsed from Brazilian locale strings."
+    columns:
+      - name: donation_id
+        description: "Stable SHA256[:16] ID built from composite key in extractor (PK)"
+        data_tests:
+          - not_null
+          - unique
+
+      - name: sq_candidato
+        description: "TSE sequential candidate ID (FK → stg_tse__candidatos)"
+        data_tests:
+          - not_null
+
+      - name: ano
+        description: "Election year"
+        data_tests:
+          - not_null
+
+      - name: valor_receita
+        description: "Donation amount in BRL — parsed from BRL locale string"
+        data_tests:
+          - not_null
+
+      - name: tipo_doador
+        description: "Donor document classification based on digit count"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['CPF', 'CNPJ', 'unknown']
