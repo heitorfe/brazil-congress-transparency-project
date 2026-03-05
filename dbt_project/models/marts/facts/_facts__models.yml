@@ -265,3 +265,51 @@ models:
 
       - name: deputado_id
         description: "Deputy code (FK → dim_deputado) — NULL when candidate is not a current deputy"
+
+  - name: fct_contrato_federal
+    description: "One row per federal procurement contract — sourced from Portal da Transparência monthly ZIPs"
+    columns:
+      - name: contrato_id
+        description: "Stable SHA-256[:16] hash of (codigo_ug|numero_contrato|cnpj_contratado|data_assinatura_raw)"
+        data_tests:
+          - not_null
+          - unique
+      - name: cnpj_contratado
+        description: "CNPJ or CPF of the contracted supplier"
+        data_tests:
+          - not_null
+      - name: nome_orgao
+        description: "Contracting ministry/agency name"
+        data_tests:
+          - not_null
+      - name: valor_inicial
+        description: "Initial contract value in BRL (null if unparseable or exceeds R$10B cap)"
+        data_tests:
+          - not_null
+      - name: ano_contrato
+        description: "Contract signature year (derived from data_assinatura_raw; null when date absent)"
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: fct_favorecido_emenda
+    description: "One row per (amendment × recipient) — TransfereGov PorFavorecido consolidated snapshot"
+    columns:
+      - name: favorecido_id
+        description: "Stable SHA-256[:16] hash of (codigo_emenda|ano_mes|codigo_favorecido)"
+        data_tests:
+          - not_null
+          - unique
+      - name: codigo_emenda
+        description: "SIAFI amendment code (FK → dim_emenda)"
+        data_tests:
+          - not_null
+      - name: ano
+        description: "Fiscal year of the transfer"
+        data_tests:
+          - not_null
+      - name: codigo_favorecido
+        description: "CNPJ (14d) or CPF (11d) of the recipient"
+        data_tests:
+          - not_null

@@ -24,3 +24,9 @@ CEAP_CAMARA_START_YEAR = 2009  # Chamber CEAP bulk ZIP available from 2009
 TSE_CDN_BASE = "https://cdn.tse.jus.br/estatistica/sead/odsele"
 TSE_ELECTION_YEARS = [2018, 2022, 2024]  # 2018 & 2022 = federal; 2024 = municipal
 MASKED_CPF_SENTINEL = "-4"               # TSE 2024 masks all candidate CPFs as "-4"
+
+# Portal da Transparência — federal contracts + TransfereGov amendments (Phase 4C)
+TRANSPARENCIA_CDN_BASE = "https://portaldatransparencia.gov.br/download-de-dados"
+TRANSPARENCIA_CONTRATOS_START_YEAR = 2023   # default recent; backfill via --skip-existing
+TRANSFEREGOV_CDN_BASE = "https://portaldatransparencia.gov.br/download-de-dados"  # same base
+TRANSFEREGOV_START_YEAR = 2015              # full history for emendas recipients

@@ -138,3 +138,23 @@ models:
 
       - name: total_pessoa_fisica
         description: "Total from individual donors (CPF) in BRL"
+
+  - name: agg_contratos_por_orgao
+    description: "Pre-aggregated contract totals per (orgao_superior × ano × modalidade) — powers the Contratos Federais dashboard"
+    columns:
+      - name: nome_orgao_superior
+        description: "Top-level ministry name"
+        data_tests:
+          - not_null
+      - name: ano_contrato
+        description: "Contract signature year"
+        data_tests:
+          - not_null
+      - name: total_contratado
+        description: "Sum of valor_inicial for this group in BRL"
+        data_tests:
+          - not_null
+      - name: num_contratos
+        description: "Count of distinct contracts in this group"
+        data_tests:
+          - not_null

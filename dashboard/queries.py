@@ -1687,3 +1687,125 @@ def get_tse_donation_origin_breakdown(year: int | None = None) -> pl.DataFrame:
             GROUP BY ano, origem_receita, tipo_doador
             ORDER BY ano, total_doado DESC
         """).pl()
+
+
+# ── Phase 4C: Federal Contracts (Portal da Transparência) ─────────────────────
+
+def get_contratos_kpis(year: int | None = None) -> dict:
+    """Total contracts, total contracted value (BRL), distinct suppliers."""
+    where = f"WHERE ano_contrato = {year}" if year is not None else "WHERE ano_contrato IS NOT NULL"
+    with _con() as con:
+        row = con.execute(f"""
+            SELECT
+                COUNT(*)                              AS total_contratos,
+                CAST(SUM(valor_inicial) AS DOUBLE)    AS total_valor,
+                COUNT(DISTINCT cnpj_contratado)       AS num_fornecedores
+            FROM main_marts.fct_contrato_federal
+            {where}
+        """).fetchone()
+    return {"total_contratos": row[0], "total_valor": row[1], "num_fornecedores": row[2]}
+
+
+def get_contratos_por_ano() -> pl.DataFrame:
+    """Annual trend of contracted value — from agg_contratos_por_orgao."""
+    with _con() as con:
+        return con.execute("""
+            SELECT
+                ano_contrato,
+                CAST(SUM(num_contratos)   AS BIGINT) AS num_contratos,
+                CAST(SUM(total_contratado) AS DOUBLE) AS total_contratado,
+                CAST(SUM(num_fornecedores) AS BIGINT) AS num_fornecedores
+            FROM main_marts.agg_contratos_por_orgao
+            WHERE ano_contrato IS NOT NULL
+              AND ano_contrato BETWEEN 2019 AND 2026
+            GROUP BY ano_contrato
+            ORDER BY ano_contrato
+        """).pl()
+
+
+def get_contratos_por_orgao(year: int | None = None, n: int = 15) -> pl.DataFrame:
+    """Top N ministries by total contracted value."""
+    where = f"WHERE ano_contrato = {year}" if year is not None else "WHERE ano_contrato IS NOT NULL"
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                nome_orgao_superior,
+                codigo_orgao_superior,
+                CAST(SUM(num_contratos)    AS BIGINT) AS num_contratos,
+                CAST(SUM(num_fornecedores) AS BIGINT) AS num_fornecedores,
+                CAST(SUM(total_contratado) AS DOUBLE) AS total_contratado,
+                CAST(AVG(media_valor_contrato) AS DOUBLE) AS media_valor_contrato
+            FROM main_marts.agg_contratos_por_orgao
+            {where}
+            GROUP BY nome_orgao_superior, codigo_orgao_superior
+            ORDER BY total_contratado DESC
+            LIMIT {n}
+        """).pl()
+
+
+def get_top_fornecedores(year: int | None = None, n: int = 30) -> pl.DataFrame:
+    """Top N suppliers by total contracted value from fct_contrato_federal."""
+    where = f"WHERE ano_contrato = {year}" if year is not None else "WHERE ano_contrato IS NOT NULL"
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                cnpj_contratado,
+                nome_contratado,
+                tipo_contratado,
+                COUNT(*)                              AS num_contratos,
+                CAST(SUM(valor_inicial) AS DOUBLE)    AS total_contratado,
+                COUNT(DISTINCT nome_orgao_superior)   AS num_orgaos
+            FROM main_marts.fct_contrato_federal
+            {where}
+            GROUP BY cnpj_contratado, nome_contratado, tipo_contratado
+            ORDER BY total_contratado DESC
+            LIMIT {n}
+        """).pl()
+
+
+# ── Phase 4C: TransfereGov Favorecidos ───────────────────────────────────────
+
+def get_favorecidos_emenda(year: int | None = None, n: int = 30) -> pl.DataFrame:
+    """Top N amendment recipients by valor_transferido."""
+    where = f"WHERE ano = {year}" if year is not None else ""
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                codigo_favorecido,
+                nome_favorecido,
+                tipo_pessoa,
+                tipo_doc_favorecido,
+                uf_favorecido,
+                COUNT(DISTINCT codigo_emenda)          AS num_emendas,
+                CAST(SUM(valor_transferido) AS DOUBLE)  AS total_transferido
+            FROM main_marts.fct_favorecido_emenda
+            {where}
+            GROUP BY codigo_favorecido, nome_favorecido, tipo_pessoa, tipo_doc_favorecido, uf_favorecido
+            ORDER BY total_transferido DESC NULLS LAST
+            LIMIT {n}
+        """).pl()
+
+
+def get_fornecedor_emenda_crossref(year: int | None = None) -> pl.DataFrame:
+    """CNPJs that appear in BOTH federal contracts AND amendment recipients."""
+    year_filter_c = f"AND ano_contrato = {year}" if year is not None else ""
+    year_filter_f = f"AND ano = {year}" if year is not None else ""
+    with _con() as con:
+        return con.execute(f"""
+            SELECT
+                c.cnpj_contratado                      AS cnpj,
+                c.nome_contratado                      AS nome_empresa,
+                CAST(SUM(c.valor_inicial) AS DOUBLE)   AS total_contratos,
+                CAST(SUM(f.valor_transferido) AS DOUBLE) AS total_emendas,
+                COUNT(DISTINCT c.contrato_id)           AS num_contratos,
+                COUNT(DISTINCT f.codigo_emenda)         AS num_emendas
+            FROM main_marts.fct_contrato_federal c
+            JOIN main_marts.fct_favorecido_emenda f
+                ON c.cnpj_contratado = f.codigo_favorecido
+            WHERE c.cnpj_contratado IS NOT NULL
+              AND f.tipo_doc_favorecido = 'CNPJ'
+              {year_filter_c}
+            GROUP BY c.cnpj_contratado, c.nome_contratado
+            ORDER BY total_contratos DESC
+            LIMIT 30
+        """).pl()

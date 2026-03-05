@@ -29,6 +29,8 @@ models:
         +tags: ['camara']
       tse:
         +tags: ['tse']
+      transferegov:
+        +tags: ['transferegov']
     marts:
       +schema: marts
       +materialized: table

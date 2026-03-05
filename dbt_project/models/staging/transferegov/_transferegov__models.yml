@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: stg_transferegov__favorecidos
+    description: >
+      Amendment recipients from TransfereGov (Portal da Transparência).
+      Grain: 1 row per (codigo_emenda × codigo_favorecido × ano).
+      The portal returns a consolidated all-years snapshot; deduplication is handled
+      by a QUALIFY window function on favorecido_id.
+    columns:
+      - name: favorecido_id
+        description: Stable SHA-256[:16] hash of (codigo_emenda|ano_mes|codigo_favorecido)
+        data_tests:
+          - not_null
+          - unique
+      - name: codigo_emenda
+        description: SIAFI amendment code (12-char) — FK to dim_emenda.codigo_emenda
+        data_tests:
+          - not_null
+      - name: ano
+        description: Fiscal year of transfer (derived from Ano/Mês YYYYMM column)
+        data_tests:
+          - not_null
+      - name: codigo_favorecido
+        description: CNPJ (14d) or CPF (11d) of the recipient entity
+        data_tests:
+          - not_null
+      - name: tipo_doc_favorecido
+        description: Document type derived from digit count
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['CNPJ', 'CPF', 'unknown']

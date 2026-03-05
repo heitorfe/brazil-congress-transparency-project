@@ -12,6 +12,8 @@ from queries import (
     get_emendas_por_uf,
     get_emendas_por_uf_autoria,
     get_top_autores_emendas,
+    get_favorecidos_emenda,
+    get_fornecedor_emenda_crossref,
 )
 
 st.set_page_config(
@@ -54,6 +56,16 @@ def load_por_uf(ano_inicio: int | None, ano_fim: int | None):
 @st.cache_data(ttl=3600)
 def load_por_uf_autoria(ano_inicio: int | None, ano_fim: int | None):
     return get_emendas_por_uf_autoria(ano_inicio, ano_fim)
+
+
+@st.cache_data(ttl=3600)
+def load_favorecidos(year, n):
+    return get_favorecidos_emenda(year=year, n=n)
+
+
+@st.cache_data(ttl=3600)
+def load_crossref_emendas(year):
+    return get_fornecedor_emenda_crossref(year=year)
 
 
 @st.cache_data
@@ -497,6 +509,108 @@ with st.expander("📖 Glossário — termos técnicos desta página"):
 | **Favorecido** | Entidade ou pessoa que recebeu o recurso (prefeitura, ONG, empresa, etc.). |
 | **Apoiamento** | Co-assinatura de empenho: outro parlamentar que endossa a destinação de recursos. |
 """)
+
+st.divider()
+
+# ── Favorecidos (TransfereGov) ───────────────────────────────────────────────
+
+st.header("💰 Favorecidos de Emendas (TransfereGov)")
+st.caption(
+    "Beneficiários diretos de emendas parlamentares — dados do TransfereGov "
+    "(Portal da Transparência). Cada linha representa uma empresa ou pessoa que "
+    "recebeu recursos de emendas parlamentares."
+)
+
+col_fav_year, col_fav_n = st.columns([1, 1])
+with col_fav_year:
+    fav_year = st.selectbox(
+        "Filtrar por ano",
+        [None] + list(range(2014, 2026)),
+        format_func=lambda x: "Todos os anos" if x is None else str(x),
+        key="fav_year",
+    )
+with col_fav_n:
+    fav_n = st.slider("Top N beneficiários", 10, 100, 30, key="fav_n")
+
+fav_df = load_favorecidos(year=fav_year, n=fav_n)
+
+if fav_df.is_empty():
+    st.info("Dados de favorecidos não disponíveis. Execute o extractor TransfereGov primeiro.")
+else:
+    col_pj, col_pf = st.columns(2)
+    pj_count = fav_df.filter(pl.col("tipo_pessoa").str.contains("(?i)jur")).height
+    pf_count = fav_df.filter(pl.col("tipo_pessoa").str.contains("(?i)f")).height
+    col_pj.metric("Pessoa Jurídica (Top N)", f"{pj_count:,}")
+    col_pf.metric("Pessoa Física (Top N)", f"{pf_count:,}")
+
+    fig_fav = px.bar(
+        fav_df.sort("total_transferido").tail(20).to_pandas(),
+        x="total_transferido",
+        y="nome_favorecido",
+        orientation="h",
+        color="tipo_pessoa",
+        labels={
+            "total_transferido": "Total Transferido (R$)",
+            "nome_favorecido": "",
+            "tipo_pessoa": "Tipo",
+        },
+        text_auto=".2s",
+    )
+    fig_fav.update_layout(showlegend=True)
+    st.plotly_chart(fig_fav, use_container_width=True)
+
+    # UF breakdown
+    if "uf_favorecido" in fav_df.columns:
+        uf_fav = (
+            fav_df.group_by("uf_favorecido")
+            .agg(pl.sum("total_transferido"))
+            .sort("total_transferido", descending=True)
+            .head(15)
+            .to_pandas()
+        )
+        fig_uf = px.bar(
+            uf_fav,
+            x="uf_favorecido",
+            y="total_transferido",
+            labels={"uf_favorecido": "UF", "total_transferido": "Total (R$)"},
+            title="Total Transferido por UF Destino",
+        )
+        st.plotly_chart(fig_uf, use_container_width=True)
+
+    with st.expander("📋 Tabela completa dos favorecidos"):
+        st.dataframe(
+            fav_df.rename({
+                "codigo_favorecido": "CNPJ/CPF",
+                "nome_favorecido": "Beneficiário",
+                "tipo_pessoa": "Tipo Pessoa",
+                "uf_favorecido": "UF",
+                "num_emendas": "Nº Emendas",
+                "total_transferido": "Total (R$)",
+            }).to_pandas(),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.subheader("🔗 Beneficiários que também têm contratos federais")
+    st.caption(
+        "Empresas (CNPJ) identificadas como favorecidas de emendas que TAMBÉM "
+        "possuem contratos com o governo federal — potencial de cruzamento de dados."
+    )
+    crossref_df = load_crossref_emendas(year=None)
+    if not crossref_df.is_empty():
+        st.metric("Empresas identificadas no cruzamento", len(crossref_df))
+        st.dataframe(
+            crossref_df.rename({
+                "cnpj": "CNPJ",
+                "nome_empresa": "Empresa",
+                "total_contratos": "Total Contratos (R$)",
+                "total_emendas": "Total Emendas (R$)",
+                "num_contratos": "Nº Contratos",
+                "num_emendas": "Nº Emendas",
+            }).to_pandas(),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 st.caption(
     "**Fonte:** Portal da Transparência — CGU "
